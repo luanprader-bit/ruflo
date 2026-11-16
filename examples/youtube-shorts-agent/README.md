@@ -1,0 +1,108 @@
+# YouTube Shorts Agent
+
+Fasst ein YouTube-Video zusammen und schneidet daraus fertige, untertitelte
+Hochkant-Shorts (1080×1920, 30 fps).
+
+```
+YouTube-URL ─▶ Transkript ─▶ Claude (Zusammenfassung + Schnittplan) ─▶ ffmpeg ─▶ Shorts + summary.md
+```
+
+## Was herauskommt
+
+```
+out/<video-id>/
+  summary.md                 TL;DR, Zusammenfassung, Kernpunkte mit Zeitstempel-Links, Clip-Tabelle
+  shorts/01-recap-….mp4      das ganze Video in < 60 s (mehrere Kernaussagen hintereinander)
+  shorts/02-highlight-….mp4  die stärksten Einzelmomente, bester zuerst
+  shorts/*.json              Titel, Beschreibung, Hashtags, Quell-Zeitstempel für den Upload
+```
+
+Jedes Short hat animierte Wort-für-Wort-Untertitel (aktuelles Wort farbig), eine
+Hook-Zeile oben, einen Fortschrittsbalken und auf −14 LUFS normalisierten Ton.
+Untertitel und Hook liegen außerhalb der Bereiche, die die Shorts-Oberfläche verdeckt.
+
+## Installation
+
+Voraussetzungen: Python ≥ 3.10 und `ffmpeg` (mit libass – bei den Standardpaketen dabei).
+
+```bash
+cd examples/youtube-shorts-agent
+```
+
+```bash
+pip install -e ".[vision]"
+```
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Optional: `pip install -e ".[whisper]"` für Videos ohne Untertitel und lokale Dateien
+(Spracherkennung mit faster-whisper).
+
+## Benutzung
+
+```bash
+shorts-agent "https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
+```bash
+# 5 Highlights, kein Recap, deutsche Titel/Zusammenfassung
+shorts-agent "https://youtu.be/VIDEO_ID" -n 5 --mode highlights --output-lang Deutsch
+```
+
+```bash
+# nur die Zusammenfassung, nichts rendern
+shorts-agent "https://youtu.be/VIDEO_ID" --summary-only
+```
+
+```bash
+# lokale Datei (nimmt video.srt/.vtt daneben, sonst Whisper)
+shorts-agent ./video.mp4 --lang de
+```
+
+Wichtige Optionen (`shorts-agent --help` zeigt alle):
+
+| Option | Wirkung |
+|---|---|
+| `-n 3` | Anzahl Highlight-Shorts |
+| `--mode both\|highlights\|recap` | Highlights, Recap oder beides (Standard) |
+| `--min-len 20 --max-len 58` | Längenfenster in Sekunden |
+| `--layout auto\|crop\|blur` | `auto`: ein ruhiges Gesicht → 9:16-Zuschnitt darauf, sonst ganzes Bild auf unscharfem Hintergrund |
+| `--highlight-color "#FFE500"` | Farbe des gesprochenen Worts und des Balkens |
+| `--no-uppercase`, `--font`, `--font-size` | Untertitel-Stil |
+| `--no-hook`, `--no-progress-bar` | Overlays abschalten |
+| `--model`, `--effort` | Claude-Modell (Standard `claude-opus-5-5`) und Denkaufwand |
+| `--analyzer heuristic` | ohne API-Key: einfache Offline-Auswahl nach Wortstatistik |
+| `--force` | Cache (Transkript, Plan) ignorieren |
+
+## Wie es arbeitet
+
+1. **Transkript** – YouTube-Untertitel in der Originalsprache (automatische bevorzugt,
+   weil sie Zeiten pro Wort liefern), sonst Whisper.
+2. **Analyse** – Claude bekommt das Transkript als nummerierte Zeilen und liefert per
+   Structured Output Zusammenfassung, Kernpunkte und einen Schnittplan. Der Plan
+   verweist nur auf Zeilennummern, nie auf frei erfundene Zeitstempel.
+3. **Schnittpunkte** – Der Plan wird auf Wortgrenzen eingerastet, auf das Längenfenster
+   gebracht (zu lang → hinten kürzen, zu kurz → verlängern) und von Überschneidungen befreit.
+4. **Rendern** – ein ffmpeg-Aufruf pro Short: schneiden, auf 9:16 bringen, Untertitel
+   (ASS) einbrennen, Balken, Lautheit.
+
+Transkript und Plan werden unter `out/<id>/.work/` gecacht – ein zweiter Lauf mit anderem
+Stil kostet keinen weiteren API-Aufruf.
+
+## Tests
+
+```bash
+pip install -e ".[dev,vision]" && pytest
+```
+
+Die Suite enthält einen echten ffmpeg-Durchlauf (lokales Testvideo → fertige Shorts).
+
+## Hinweise
+
+- Ohne Claude-Zugang fällt `--analyzer auto` auf die Offline-Heuristik zurück. Die liefert
+  brauchbare Schnitte, aber keine redaktionelle Auswahl und keine echten Titel.
+- Bei blockierten Anfragen von YouTube hilft `yt-dlp` aktuell zu halten
+  (`pip install -U yt-dlp`).
+- Verwende nur Videos, an denen du die nötigen Rechte hast.
