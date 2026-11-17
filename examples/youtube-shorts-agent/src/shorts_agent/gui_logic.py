@@ -1,0 +1,307 @@
+"""Tk-free parts of the desktop app: settings, CLI arguments, output parsing."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+APP_NAME = "YouTube Shorts Agent"
+IS_WINDOWS = sys.platform == "win32"
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+MODES = {"Recap + Highlights": "both", "Nur Highlights": "highlights", "Nur Recap": "recap"}
+LANGS = {"Wie im Video": None, "Deutsch": "Deutsch", "English": "English"}
+LAYOUTS = {"Automatisch": "auto", "Auf Gesicht zuschneiden": "crop", "Ganzes Bild + Unschärfe": "blur"}
+
+
+# --------------------------------------------------------------------------- #
+# Settings (no secrets in here)
+# --------------------------------------------------------------------------- #
+def _config_dir() -> Path:
+    base = os.environ.get("APPDATA") if IS_WINDOWS else os.environ.get("XDG_CONFIG_HOME")
+    return Path(base or Path.home() / ".config") / "shorts-agent"
+
+
+def default_out_dir() -> Path:
+    videos = Path.home() / "Videos"
+    return (videos if videos.is_dir() else Path.home()) / "YouTube Shorts"
+
+
+@dataclass
+class Settings:
+    highlights: int = 3
+    mode: str = "Nur Highlights"
+    language: str = "Wie im Video"
+    layout: str = "Automatisch"
+    max_len: int = 60
+    color: str = "#FFE500"
+    uppercase: bool = True
+    hook: bool = True
+    teaser: bool = True
+    out_dir: str = ""
+    last_update_check: float = 0.0
+
+    @classmethod
+    def load(cls) -> "Settings":
+        try:
+            data = json.loads((_config_dir() / "settings.json").read_text(encoding="utf-8"))
+            known = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+            return cls(**known)
+        except (OSError, ValueError, TypeError):
+            return cls()
+
+    def save(self) -> None:
+        try:
+            _config_dir().mkdir(parents=True, exist_ok=True)
+            (_config_dir() / "settings.json").write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+
+# --------------------------------------------------------------------------- #
+# API key: environment, else the Windows user environment in the registry
+# --------------------------------------------------------------------------- #
+def load_api_key() -> str:
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if key or not IS_WINDOWS:
+        return key
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as reg:
+            return str(winreg.QueryValueEx(reg, "ANTHROPIC_API_KEY")[0])
+    except OSError:
+        return ""
+
+
+def save_api_key(key: str) -> bool:
+    """Persist for this Windows user (same place `setx` writes to)."""
+    if not IS_WINDOWS:
+        return False
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as reg:
+            if key:
+                winreg.SetValueEx(reg, "ANTHROPIC_API_KEY", 0, winreg.REG_SZ, key)
+            else:
+                try:
+                    winreg.DeleteValue(reg, "ANTHROPIC_API_KEY")
+                except FileNotFoundError:
+                    pass
+        return True
+    except OSError:
+        return False
+
+
+# --------------------------------------------------------------------------- #
+# Pure helpers (unit-tested)
+# --------------------------------------------------------------------------- #
+def child_python() -> str:
+    """python.exe next to pythonw.exe, so the child has real stdio."""
+    exe = Path(sys.executable)
+    if exe.name.lower() == "pythonw.exe" and (exe.parent / "python.exe").exists():
+        return str(exe.parent / "python.exe")
+    return str(exe)
+
+
+def build_cli_args(source: str, s: Settings, out_dir: Path, has_key: bool = False) -> list[str]:
+    args = [
+        "-m", "shorts_agent.cli", source,
+        "-o", str(out_dir),
+        "-n", str(max(0, int(s.highlights))),
+        "--mode", MODES.get(s.mode, "both"),
+        "--layout", LAYOUTS.get(s.layout, "auto"),
+        "--max-len", str(max(15, min(60, int(s.max_len)))),
+        "--min-len", str(max(8, int(s.max_len) - 15)),
+        "--highlight-color", s.color,
+    ]
+    if lang := LANGS.get(s.language):
+        args += ["--output-lang", lang]
+    if not s.uppercase:
+        args.append("--no-uppercase")
+    if not s.hook:
+        args.append("--no-hook")
+    if not s.teaser:
+        args.append("--no-teaser")
+    # Without a key the CLI's "auto" mode picks the free local AI, else the simple selection.
+    return args
+
+
+@dataclass
+class Event:
+    kind: str  # "status" | "log" | "short" | "summary" | "error" | "note" | "keyerror"
+    text: str = ""
+    progress: float | None = None
+
+
+_RENDER = re.compile(r"⑤ Rendering (\d+)/(\d+)\s+(.*?)\s+\(")
+_DOWNLOAD = re.compile(r"\[download\]\s+([\d.]+)%")
+_WHISPER = re.compile(r"(\d+:\d\d(?::\d\d)?) / (\S+) transcribed")
+
+
+def parse_line(line: str) -> list[Event]:
+    """Translate one line of CLI output into UI events."""
+    line = line.rstrip()
+    if not line.strip():
+        return []
+    if m := _DOWNLOAD.search(line):
+        pct = float(m.group(1))
+        events = [Event("status", f"Lade Video herunter … {pct:.0f} %")]
+        return events + ([Event("log", line)] if pct >= 100 else [])
+    out = [Event("log", line)]
+    if line.startswith("① "):
+        out.append(Event("status", "Lade Video-Infos …", 5))
+    elif line.startswith("② "):
+        out.append(Event("status", "Hole Untertitel …", 10))
+    elif "Transcribing with Whisper" in line:
+        out.append(Event("status", "Spracherkennung läuft – das kann einige Minuten dauern …", 25))
+    elif m := _WHISPER.search(line):
+        out.append(Event("status", f"Spracherkennung: {m.group(1)} von {m.group(2)} …"))
+    elif line.startswith("③ "):
+        out.append(Event("status", "Video wird analysiert …", 45))
+    elif line.startswith("④ "):
+        out.append(Event("status", "Lade Video herunter …", 55))
+    elif m := _RENDER.search(line):
+        i, n = int(m.group(1)), int(m.group(2))
+        out.append(Event("status", f"Schneide Short {i} von {n}: {m.group(3)}", 60 + 38 * (i - 1) / n))
+    elif line.startswith("Short:"):
+        out.append(Event("short", line.split(":", 1)[1].strip()))
+    elif line.startswith("Summary:"):
+        out.append(Event("summary", line.split(":", 1)[1].strip(), 100))
+    elif line.startswith("Error:"):
+        out.append(Event("error", line.split(":", 1)[1].strip()))
+    elif "Claude rejected the API key" in line:
+        out.append(Event("keyerror", "Der API-Key wurde abgelehnt – es wird ohne Key weitergemacht."))
+    elif "Connection lost" in line:
+        out.append(Event("status", "Internetverbindung unterbrochen – neuer Versuch gleich …"))
+    elif "Using the free local AI" in line:
+        out.append(Event("status", "Die kostenlose KI auf deinem PC schaut sich das Video an – "
+                                   "das kann einige Minuten dauern …", 45))
+    elif "Writing titles and catchphrases" in line:
+        out.append(Event("status", "Schreibe Titel und Catchphrases …", 50))
+    elif line.startswith("Note: offline heuristic"):
+        out.append(Event("note", "Ohne KI erstellt (einfache Auswahl). Richte die kostenlose KI ein "
+                                 "oder nutze einen API-Key für bessere Clips und Titel."))
+    elif line.startswith("Note: created with the free local AI"):
+        out.append(Event("note", "Mit der kostenlosen KI auf deinem PC erstellt."))
+    return out
+
+
+def friendly_error(message: str) -> str:
+    low = message.lower()
+    if "ffmpeg" in low and "not found" in low:
+        return "ffmpeg fehlt.\n\nIn PowerShell installieren:\n  winget install Gyan.FFmpeg\nDanach die App neu starten."
+    if "no captions" in low or "429" in low:
+        return ("YouTube hat keine Untertitel geliefert und die Spracherkennung ist nicht installiert.\n\n"
+                "Starte start.bat einmal neu – es installiert die Spracherkennung nach.\n\n" + message)
+    if "no internet connection" in low or "getaddrinfo" in low:
+        return ("Die Internetverbindung ist abgebrochen oder YouTube war nicht erreichbar.\n\n"
+                "Prüfe dein Internet und klicke einfach nochmal auf „Shorts erstellen“ – "
+                "der Download macht dort weiter, wo er aufgehört hat.")
+    if "sign in" in low or "bot" in low:
+        return "YouTube blockiert den Download gerade. Bitte später erneut versuchen.\n\n" + message
+    if "credentials" in low or "api key" in low or "401" in low:
+        return "Der API-Key wurde abgelehnt. Bitte prüfen.\n\n" + message
+    return message
+
+
+def short_label(video: Path) -> str:
+    """'Title  (42 s, Highlight)' from the .json written next to each Short."""
+    try:
+        meta = json.loads(video.with_suffix(".json").read_text(encoding="utf-8"))
+        kind = "Zusammenfassung" if meta.get("kind") == "recap" else "Highlight"
+        return f"{meta['title']}   ({round(meta['duration'])} s, {kind})"
+    except (OSError, ValueError, KeyError, TypeError):
+        return video.stem
+
+
+def key_problem(key: str) -> str | None:
+    """Catch obviously wrong keys before a run (typos, pasted spaces, other providers)."""
+    key = key.strip()
+    if not key:
+        return None
+    if not key.startswith("sk-ant-"):
+        return "Der API-Key muss mit „sk-ant-“ beginnen."
+    if len(key) < 40 or any(c.isspace() for c in key):
+        return "Der API-Key ist unvollständig – bitte komplett neu einfügen."
+    return None
+
+
+def _meta(video: Path) -> dict:
+    try:
+        return json.loads(video.with_suffix(".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def upload_text(video: Path) -> str:
+    """Ready to paste into YouTube: title, blank line, description with hashtags."""
+    meta = _meta(video)
+    return f"{meta.get('title', video.stem)}\n\n{meta.get('description', '')}".strip()
+
+
+def details_text(video: Path) -> str:
+    meta = _meta(video)
+    if not meta:
+        return video.name
+    lines = [f"Titel:  {meta.get('title', '')}"]
+    if meta.get("hook"):
+        lines.append(f"Catchphrase:  {meta['hook']}")
+    if meta.get("title_options"):
+        lines += ["", "Andere Titel-Ideen:"] + [f"  • {t}" for t in meta["title_options"]]
+    lines += ["", "Beschreibung:", meta.get("description", "")]
+    if meta.get("why"):
+        lines += ["", f"Warum dieser Clip:  {meta['why']}"]
+    return "\n".join(lines)
+
+
+def setup_free_ai(report) -> None:
+    """Install/start Ollama and download the model. `report(text, fraction_or_None)`.
+    Raises RuntimeError with a message for the user."""
+    from . import local_llm
+
+    if local_llm.status() == "no-server":
+        if not local_llm.find_executable():
+            if not IS_WINDOWS:
+                raise RuntimeError("Bitte Ollama von ollama.com installieren und danach erneut versuchen.")
+            report("Installiere Ollama (ca. 1 GB) – den Fortschritt siehst du im schwarzen Fenster …", None)
+            if not local_llm.install_windows():
+                raise RuntimeError("Ollama konnte nicht installiert werden.\n\nInstalliere es von Hand mit\n"
+                                   "  winget install Ollama.Ollama\noder von ollama.com und versuche es dann erneut.")
+        report("Starte Ollama …", None)
+        if not local_llm.ensure_server(60):
+            raise RuntimeError("Ollama ist installiert, startet aber nicht.\n\n"
+                               "Öffne „Ollama“ einmal über das Startmenü und versuche es dann erneut.")
+    if local_llm.status() == "no-model":
+        last = {"pct": -1}
+
+        def progress(text: str, fraction: float | None) -> None:
+            if fraction is None:
+                return
+            pct = int(fraction * 100)
+            if pct != last["pct"]:
+                last["pct"] = pct
+                report(f"Lade das KI-Modell herunter (ca. 4,7 GB) … {pct} %", fraction)
+
+        report("Lade das KI-Modell herunter (ca. 4,7 GB) …", 0.0)
+        try:
+            local_llm.pull(on_progress=progress)
+        except local_llm.LocalUnavailable as exc:
+            raise RuntimeError(f"Download des KI-Modells fehlgeschlagen.\n\n{exc}") from exc
+    if local_llm.status() != "ready":
+        raise RuntimeError("Die kostenlose KI ist noch nicht bereit. Bitte erneut versuchen.")
+
+
+def open_path(path: Path) -> None:
+    if IS_WINDOWS:
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])

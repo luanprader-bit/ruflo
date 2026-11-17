@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shorts-agent"
+version = "0.1.0"
+description = "Summarises YouTube videos and turns the best moments into subtitled vertical Shorts"
+requires-python = ">=3.10"
+dependencies = [
+  "anthropic>=2.0",
+  "pydantic>=2.6",
+  "yt-dlp>=2025.1.1",
+]
+
+[project.optional-dependencies]
+# Face-aware 9:16 framing
+vision = ["opencv-python-headless>=4.8,<5", "numpy"]
+# Speech-to-text for videos without captions / local files
+whisper = ["faster-whisper>=1.0"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+shorts-agent = "shorts_agent.cli:main"
+
+[project.gui-scripts]
+shorts-agent-app = "shorts_agent.gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
