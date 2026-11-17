@@ -22,7 +22,11 @@ def is_url(value: str) -> bool:
 def _ydl(**opts):
     import yt_dlp
 
-    return yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True, **opts})
+    return yt_dlp.YoutubeDL({
+        "quiet": True, "no_warnings": True, "noplaylist": True,
+        "retries": 10, "fragment_retries": 10, "extractor_retries": 3, "socket_timeout": 30,
+        **opts,
+    })
 
 
 def fetch_info(url: str) -> tuple[VideoInfo, dict]:
@@ -117,8 +121,26 @@ def _download_text(url: str, waits: tuple[float, ...] = (3.0, 8.0)) -> str:
     raise AssertionError("unreachable")
 
 
-def download_video(url: str, dest_dir: Path, video_id: str, max_height: int = 1080) -> Path:
-    """Download (or reuse) the video as mp4."""
+_NETWORK_HINTS = ("getaddrinfo", "errno 11001", "timed out", "connection", "network", "unreachable",
+                  "temporarily", "reset by peer", "eof occurred", "remote end closed")
+
+
+def _describe(exc: BaseException) -> str:
+    """yt-dlp errors often read just 'ERROR:'; dig out the underlying cause."""
+    texts = [str(exc).strip()]
+    inner = getattr(exc, "exc_info", None)
+    if inner and len(inner) > 1 and inner[1] is not None:
+        texts.append(str(inner[1]).strip())
+    if exc.__cause__ is not None:
+        texts.append(str(exc.__cause__).strip())
+    useful = [t.removeprefix("ERROR:").strip() for t in texts]
+    return " / ".join(t for t in useful if t) or type(exc).__name__
+
+
+def download_video(
+    url: str, dest_dir: Path, video_id: str, max_height: int = 1080, waits: tuple[float, ...] = (5.0, 20.0)
+) -> Path:
+    """Download (or reuse) the video as mp4. Network drops are retried; partial files resume."""
     target = dest_dir / f"{video_id}.mp4"
     if target.exists() and target.stat().st_size > 0:
         return target
@@ -126,14 +148,30 @@ def download_video(url: str, dest_dir: Path, video_id: str, max_height: int = 10
         f"bv*[height<={max_height}][vcodec^=avc1]+ba[ext=m4a]/"
         f"bv*[height<={max_height}]+ba/b[height<={max_height}]/b"
     )
-    with _ydl(
-        format=fmt,
-        merge_output_format="mp4",
-        outtmpl=str(dest_dir / f"{video_id}.%(ext)s"),
-        quiet=False,
-        noprogress=not log.isEnabledFor(logging.INFO),
-    ) as ydl:
-        ydl.download([url])
+    for attempt in range(len(waits) + 1):
+        try:
+            with _ydl(
+                format=fmt,
+                merge_output_format="mp4",
+                outtmpl=str(dest_dir / f"{video_id}.%(ext)s"),
+                quiet=False,
+                noprogress=not log.isEnabledFor(logging.INFO),
+            ) as ydl:
+                ydl.download([url])
+            break
+        except Exception as exc:
+            reason = _describe(exc)
+            network = any(h in reason.lower() for h in _NETWORK_HINTS)
+            if network and attempt < len(waits):
+                log.warning("Connection lost (%s) - retrying in %.0fs", reason, waits[attempt])
+                time.sleep(waits[attempt])
+                continue
+            if network:
+                raise RuntimeError(
+                    f"Video download failed: no internet connection or YouTube unreachable ({reason}). "
+                    "Check your connection and start again - the download resumes where it stopped."
+                ) from exc
+            raise RuntimeError(f"Video download failed: {reason}") from exc
     if not target.exists():
         raise RuntimeError(f"yt-dlp finished but {target} is missing")
     return target

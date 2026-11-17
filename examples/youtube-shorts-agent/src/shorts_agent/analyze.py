@@ -152,7 +152,7 @@ def plan_with_claude(
         ) as stream:
             message = stream.get_final_message()
     except anthropic.AuthenticationError as exc:
-        raise AnalysisUnavailable(f"Claude rejected the credentials: {exc.message}") from exc
+        raise AnalysisUnavailable("Claude rejected the API key (invalid or revoked)") from exc
     except anthropic.PermissionDeniedError as exc:
         raise AnalysisUnavailable(f"No access to model {model}: {exc.message}") from exc
     except anthropic.RateLimitError as exc:

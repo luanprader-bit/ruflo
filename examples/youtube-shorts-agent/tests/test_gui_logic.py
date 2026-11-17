@@ -115,3 +115,76 @@ def test_short_label(tmp_path):
     assert g.short_label(video) == "01-recap-x"
     video.with_suffix(".json").write_text('{"title": "Fokus", "duration": 41.6, "kind": "recap"}')
     assert g.short_label(video) == "Fokus   (42 s, Zusammenfassung)"
+
+
+def test_key_problem():
+    assert g.key_problem("") is None
+    assert "sk-ant-" in g.key_problem(".")
+    assert "unvollständig" in g.key_problem("sk-ant-api03-abc")
+    assert g.key_problem("  sk-ant-api03-" + "x" * 80 + "  ") is None
+
+
+def test_key_rejection_and_network_messages():
+    ev = g.parse_line("Claude unavailable (Claude rejected the API key (invalid or revoked)). Falling back")
+    assert ev[-1].kind == "keyerror"
+    assert "nochmal" in g.friendly_error(
+        "Video download failed: no internet connection or YouTube unreachable ([Errno 11001] getaddrinfo failed).")
+    assert "API-Key wurde abgelehnt" in g.friendly_error("Claude rejected the API key")
+
+
+class _DLError(Exception):
+    def __init__(self, inner):
+        super().__init__("ERROR: ")
+        self.exc_info = (type(inner), inner, None)
+
+
+def test_download_retries_network_drops(monkeypatch, tmp_path):
+    from shorts_agent import youtube
+
+    calls = []
+
+    class YDL:
+        def __init__(self, **opts):
+            self.opts = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *e):
+            return False
+
+        def download(self, urls):
+            calls.append(urls)
+            if len(calls) < 3:
+                raise _DLError(OSError("[Errno 11001] getaddrinfo failed"))
+            (tmp_path / "vid.mp4").write_bytes(b"x")
+
+    monkeypatch.setattr(youtube, "_ydl", lambda **o: YDL(**o))
+    monkeypatch.setattr(youtube.time, "sleep", lambda s: None)
+    assert youtube.download_video("u", tmp_path, "vid").name == "vid.mp4" and len(calls) == 3
+
+
+def test_download_gives_clear_error(monkeypatch, tmp_path):
+    from shorts_agent import youtube
+
+    class YDL:
+        def __init__(self, **o):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *e):
+            return False
+
+        def download(self, urls):
+            raise _DLError(OSError("[Errno 11001] getaddrinfo failed"))
+
+    monkeypatch.setattr(youtube, "_ydl", lambda **o: YDL())
+    monkeypatch.setattr(youtube.time, "sleep", lambda s: None)
+    try:
+        youtube.download_video("u", tmp_path, "vid")
+    except RuntimeError as exc:
+        assert "no internet connection" in str(exc) and "getaddrinfo" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")

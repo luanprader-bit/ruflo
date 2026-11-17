@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .gui_logic import (
     APP_NAME, IS_WINDOWS, LANGS, LAYOUTS, MODES, NO_WINDOW, Settings, build_cli_args, child_python,
-    default_out_dir, friendly_error, load_api_key, open_path, parse_line, save_api_key, short_label,
+    default_out_dir, friendly_error, key_problem, load_api_key, open_path, parse_line, save_api_key, short_label,
 )
 
 
@@ -232,6 +232,16 @@ def main() -> None:
         s.save()
         settings.__dict__.update(s.__dict__)
         key = key_var.get().strip()
+        if problem := key_problem(key):
+            go_on = messagebox.askyesno(
+                APP_NAME,
+                f"{problem}\n\nDu bekommst ihn auf console.anthropic.com → API Keys.\n\n"
+                "Ohne Key weitermachen (einfache Auswahl)?",
+            )
+            if not go_on:
+                return
+            key = ""
+            key_var.set("")
         if IS_WINDOWS:
             save_api_key(key if remember_var.get() else "")
         out_dir = Path(s.out_dir).expanduser()
@@ -315,7 +325,10 @@ def main() -> None:
                     elif ev.kind == "error":
                         state["error"] = ev.text
                     elif ev.kind == "note":
-                        state["note"] = ev.text
+                        state["note"] = state["note"] or ev.text
+                    elif ev.kind == "keyerror":
+                        state["note"] = ev.text + " Bitte Key prüfen."
+                        status_var.set(ev.text)
                     if ev.progress is not None:
                         bar["value"] = max(bar["value"], ev.progress)
         except queue.Empty:

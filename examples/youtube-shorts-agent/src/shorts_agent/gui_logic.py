@@ -136,7 +136,7 @@ def build_cli_args(source: str, s: Settings, out_dir: Path, has_key: bool) -> li
 
 @dataclass
 class Event:
-    kind: str  # "status" | "log" | "short" | "summary" | "error" | "note"
+    kind: str  # "status" | "log" | "short" | "summary" | "error" | "note" | "keyerror"
     text: str = ""
     progress: float | None = None
 
@@ -177,6 +177,10 @@ def parse_line(line: str) -> list[Event]:
         out.append(Event("summary", line.split(":", 1)[1].strip(), 100))
     elif line.startswith("Error:"):
         out.append(Event("error", line.split(":", 1)[1].strip()))
+    elif "Claude rejected the API key" in line:
+        out.append(Event("keyerror", "Der API-Key wurde abgelehnt – es wird ohne Key weitergemacht."))
+    elif "Connection lost" in line:
+        out.append(Event("status", "Internetverbindung unterbrochen – neuer Versuch gleich …"))
     elif line.startswith("Note: offline heuristic"):
         out.append(Event("note", "Ohne API-Key erstellt – mit Key werden Auswahl und Titel deutlich besser."))
     return out
@@ -189,6 +193,10 @@ def friendly_error(message: str) -> str:
     if "no captions" in low or "429" in low:
         return ("YouTube hat keine Untertitel geliefert und die Spracherkennung ist nicht installiert.\n\n"
                 "Starte start.bat einmal neu – es installiert die Spracherkennung nach.\n\n" + message)
+    if "no internet connection" in low or "getaddrinfo" in low:
+        return ("Die Internetverbindung ist abgebrochen oder YouTube war nicht erreichbar.\n\n"
+                "Prüfe dein Internet und klicke einfach nochmal auf „Shorts erstellen“ – "
+                "der Download macht dort weiter, wo er aufgehört hat.")
     if "sign in" in low or "bot" in low:
         return "YouTube blockiert den Download gerade. Bitte später erneut versuchen.\n\n" + message
     if "credentials" in low or "api key" in low or "401" in low:
@@ -204,6 +212,18 @@ def short_label(video: Path) -> str:
         return f"{meta['title']}   ({round(meta['duration'])} s, {kind})"
     except (OSError, ValueError, KeyError, TypeError):
         return video.stem
+
+
+def key_problem(key: str) -> str | None:
+    """Catch obviously wrong keys before a run (typos, pasted spaces, other providers)."""
+    key = key.strip()
+    if not key:
+        return None
+    if not key.startswith("sk-ant-"):
+        return "Der API-Key muss mit „sk-ant-“ beginnen."
+    if len(key) < 40 or any(c.isspace() for c in key):
+        return "Der API-Key ist unvollständig – bitte komplett neu einfügen."
+    return None
 
 
 def open_path(path: Path) -> None:

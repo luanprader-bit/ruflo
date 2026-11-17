@@ -63,7 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO, format="%(message)s", stream=sys.stderr
     )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    for noisy in ("httpx", "httpx2", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
     try:
         ass_color(args.highlight_color)
