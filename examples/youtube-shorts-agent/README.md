@@ -42,6 +42,20 @@ Die Python-Umgebung liegt unter `%LOCALAPPDATA%\YouTubeShortsAgent` (nicht in On
 
 Auf anderen Systemen startet `shorts-agent-app` (bzw. `python -m shorts_agent.gui`) dasselbe Fenster.
 
+## Ohne API-Key: kostenlose KI auf dem eigenen PC
+
+Ohne Key nutzt der Agent automatisch eine lokale KI über [Ollama](https://ollama.com) mit dem
+freien Modell `qwen2.5:7b` (Deutsch und Englisch). Kein Key, keine Kosten – dafür einmalig
+ca. 5–6 GB Download, mindestens 8 GB Arbeitsspeicher und pro Video einige Minuten Rechenzeit
+(mit Grafikkarte deutlich schneller).
+
+- **In der App:** Knopf **„Kostenlose KI einrichten“** – installiert Ollama und lädt das Modell.
+- **Von Hand:** `winget install Ollama.Ollama`, danach `ollama pull qwen2.5:7b`.
+
+Reihenfolge bei `--analyzer auto`: Claude (wenn ein Key funktioniert) → lokale KI (wenn
+eingerichtet) → einfache Auswahl ohne KI. Erzwingen mit `--analyzer local`, anderes Modell mit
+`--local-model <name>`.
+
 ## Installation
 
 Voraussetzungen: Python ≥ 3.10 und `ffmpeg` (mit libass – bei den Standardpaketen dabei).
@@ -95,7 +109,7 @@ Wichtige Optionen (`shorts-agent --help` zeigt alle):
 | `--no-uppercase`, `--font`, `--font-size` | Untertitel-Stil |
 | `--no-hook`, `--no-progress-bar` | Catchphrase bzw. Balken abschalten |
 | `--model`, `--effort` | Claude-Modell (Standard `claude-opus-5-5`) und Denkaufwand |
-| `--analyzer heuristic` | ohne API-Key: einfache Offline-Auswahl nach Wortstatistik |
+| `--analyzer auto\|claude\|local\|heuristic` | welche KI auswählt (Standard `auto`, siehe oben) |
 | `--force` | Cache (Transkript, Plan) ignorieren |
 
 ## Wie es arbeitet

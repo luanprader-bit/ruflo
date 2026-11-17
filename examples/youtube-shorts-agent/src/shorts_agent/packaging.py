@@ -130,14 +130,14 @@ def package(
     *,
     model: str | None = None,
     effort: str = "high",
+    backend: str = "claude",
+    local_model: str | None = None,
 ) -> PackagingPlan:
+    request = build_request(info, transcript, clips, language)
+    if backend == "local":
+        from .local_llm import call_local
+
+        return call_local(PACKAGING_SYSTEM, request, PackagingPlan, model=local_model)
     from .analyze import call_claude
 
-    return call_claude(
-        PACKAGING_SYSTEM,
-        build_request(info, transcript, clips, language),
-        PackagingPlan,
-        model=model,
-        effort=effort,
-        max_tokens=16000,
-    )
+    return call_claude(PACKAGING_SYSTEM, request, PackagingPlan, model=model, effort=effort, max_tokens=16000)

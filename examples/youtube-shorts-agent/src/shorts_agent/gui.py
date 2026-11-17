@@ -18,9 +18,10 @@ import time
 import webbrowser
 from pathlib import Path
 
+from . import local_llm
 from .gui_logic import (
     APP_NAME, IS_WINDOWS, LANGS, LAYOUTS, MODES, NO_WINDOW, Settings, build_cli_args, child_python,
-    default_out_dir, friendly_error, details_text, key_problem, load_api_key, open_path, parse_line, save_api_key, short_label, upload_text,
+    default_out_dir, friendly_error, details_text, key_problem, load_api_key, open_path, parse_line, save_api_key, setup_free_ai, short_label, upload_text,
 )
 
 
@@ -88,10 +89,15 @@ def main() -> None:
     key_row = ttk.Frame(frame)
     key_row.grid(row=2, column=2, sticky="w", pady=(8, 0))
     ttk.Checkbutton(key_row, text="merken", variable=remember_var).pack(side="left")
-    hint = ttk.Label(frame, text="Optional – ohne Key gibt es eine einfache Auswahl.  Key holen ↗",
-                     foreground="#2563eb", cursor="hand2")
-    hint.grid(row=3, column=1, sticky="w", padx=8)
+    hint = ttk.Label(key_row, text="  Key holen ↗", foreground="#2563eb", cursor="hand2")
+    hint.pack(side="left")
     hint.bind("<Button-1>", lambda _e: webbrowser.open("https://console.anthropic.com/settings/keys"))
+    ai_row = ttk.Frame(frame)
+    ai_row.grid(row=3, column=1, sticky="w", padx=8)
+    ai_var = tk.StringVar(value="Optional – ohne Key geht es auch.")
+    ttk.Label(ai_row, textvariable=ai_var, foreground="#374151").pack(side="left")
+    ai_btn = ttk.Button(frame, text="Kostenlose KI einrichten")
+    ai_btn.grid(row=3, column=2, sticky="ew", pady=(4, 0))
 
     opts = ttk.LabelFrame(frame, text="Einstellungen", padding=10)
     opts.grid(row=4, column=0, columnspan=3, sticky="ew", pady=12)
@@ -338,12 +344,60 @@ def main() -> None:
             tabs.select(2)
             messagebox.showerror(APP_NAME, friendly_error(state["error"] or f"Unbekannter Fehler (Code {code})"))
 
+    def refresh_ai() -> None:
+        threading.Thread(target=lambda: events.put(("ai", local_llm.status())), daemon=True).start()
+
+    def show_ai(state_: str) -> None:
+        if state_ == "ready":
+            ai_var.set("✓ Kostenlose KI ist bereit – sie wird ohne Key benutzt.")
+            ai_btn.configure(text="KI ist bereit", state="disabled")
+        else:
+            ai_var.set("Ohne Key: einfache Auswahl – oder gratis mit KI auf deinem PC →")
+            ai_btn.configure(text="Kostenlose KI einrichten", state="normal")
+
+    def setup_ai() -> None:
+        if not messagebox.askyesno(APP_NAME, (
+                "Die kostenlose KI läuft direkt auf deinem PC (Ollama + Sprachmodell Qwen 2.5).\n\n"
+                "• einmaliger Download: ca. 5–6 GB\n• braucht mindestens 8 GB Arbeitsspeicher\n"
+                "• langsamer als mit API-Key (pro Video einige Minuten)\n\nJetzt einrichten?")):
+            return
+        ai_btn.configure(state="disabled")
+        start_btn.configure(state="disabled")
+        bar["value"] = 0
+
+        def work() -> None:
+            try:
+                setup_free_ai(lambda text, frac: events.put(("setup", (text, frac))))
+                events.put(("setup-done", None))
+            except Exception as exc:  # shown to the user
+                events.put(("setup-error", str(exc)))
+
+        threading.Thread(target=work, daemon=True).start()
+
     def pump() -> None:
         try:
             while True:
                 kind, payload = events.get_nowait()
                 if kind == "exit":
                     finish(payload)
+                    continue
+                if kind == "ai":
+                    show_ai(payload)
+                    continue
+                if kind == "setup":
+                    status_var.set(payload[0])
+                    if payload[1] is not None:
+                        bar["value"] = payload[1] * 100
+                    continue
+                if kind in ("setup-done", "setup-error"):
+                    start_btn.configure(state="normal")
+                    bar["value"] = 100 if kind == "setup-done" else 0
+                    if kind == "setup-done":
+                        status_var.set("Die kostenlose KI ist bereit. Füge einen Link ein und klicke auf „Shorts erstellen“.")
+                    else:
+                        status_var.set("Einrichtung der kostenlosen KI fehlgeschlagen.")
+                        messagebox.showerror(APP_NAME, payload)
+                    refresh_ai()
                     continue
                 for ev in parse_line(payload):
                     if ev.kind == "log":
@@ -411,7 +465,9 @@ def main() -> None:
     url_entry.bind("<Return>", lambda _e: start())
     root.protocol("WM_DELETE_WINDOW", on_close)
     url_entry.focus_set()
+    ai_btn.configure(command=setup_ai)
     update_yt_dlp()
+    refresh_ai()
     root.after(400, pump)
     root.mainloop()
 

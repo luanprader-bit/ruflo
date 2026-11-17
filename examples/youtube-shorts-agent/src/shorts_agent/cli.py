@@ -33,8 +33,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--whisper-model", default="small", help="faster-whisper model when no captions exist")
 
     g = p.add_argument_group("analysis")
-    g.add_argument("--analyzer", choices=["auto", "claude", "heuristic"], default="auto",
-                   help="auto = Claude if credentials are available, else offline heuristic")
+    g.add_argument("--analyzer", choices=["auto", "claude", "local", "heuristic"], default="auto",
+                   help="auto = Claude if a key works, else free local AI (Ollama) if set up, else simple offline selection")
+    g.add_argument("--local-model", help="Ollama model for the free local AI (default: qwen2.5:7b)")
     g.add_argument("--model", help="Claude model id (default: claude-opus-5-5 or $SHORTS_AGENT_MODEL)")
     g.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"], default="high")
     g.add_argument("--output-lang", help="language for summary and titles (default: video language)")
@@ -80,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
             transcript_file=args.transcript,
             whisper_model=args.whisper_model,
             analyzer=args.analyzer,
+            local_model=args.local_model,
             model=args.model,
             effort=args.effort,
             layout=args.layout,
@@ -111,8 +113,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nSummary: {result.summary}")
     for short in result.shorts:
         print(f"Short:   {short}")
-    if result.analyzer != "claude":
-        print("Note: offline heuristic was used. Set ANTHROPIC_API_KEY for much better clip selection.")
+    if result.analyzer == "heuristic":
+        print("Note: offline heuristic was used. For AI quality set ANTHROPIC_API_KEY, "
+              "or install the free local AI (Ollama) - see README.")
+    elif result.analyzer == "local":
+        print("Note: created with the free local AI (Ollama).")
     return 0
 
 

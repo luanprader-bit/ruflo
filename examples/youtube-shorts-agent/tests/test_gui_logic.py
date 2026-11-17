@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from shorts_agent import gui_logic as g
 from shorts_agent.youtube import RateLimited, _download_text, fetch_captions
@@ -17,9 +16,9 @@ def test_cli_args_follow_settings(tmp_path):
 
 
 def test_cli_args_without_key_use_offline_analyzer(tmp_path):
-    args = g.build_cli_args("v.mp4", g.Settings(max_len=20, language="Wie im Video"), tmp_path, has_key=False)
+    args = g.build_cli_args("v.mp4", g.Settings(max_len=20, language="Wie im Video"), tmp_path)
     joined = " ".join(args)
-    assert "--analyzer heuristic" in joined and "--output-lang" not in joined
+    assert "--analyzer" not in joined and "--output-lang" not in joined  # CLI auto: local AI or simple
     assert "--max-len 20" in joined and "--min-len 8" in joined  # min stays below max
 
 

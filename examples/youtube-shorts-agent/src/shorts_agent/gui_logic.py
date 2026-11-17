@@ -110,7 +110,7 @@ def child_python() -> str:
     return str(exe)
 
 
-def build_cli_args(source: str, s: Settings, out_dir: Path, has_key: bool) -> list[str]:
+def build_cli_args(source: str, s: Settings, out_dir: Path, has_key: bool = False) -> list[str]:
     args = [
         "-m", "shorts_agent.cli", source,
         "-o", str(out_dir),
@@ -129,8 +129,7 @@ def build_cli_args(source: str, s: Settings, out_dir: Path, has_key: bool) -> li
         args.append("--no-hook")
     if not s.teaser:
         args.append("--no-teaser")
-    if not has_key:
-        args += ["--analyzer", "heuristic"]
+    # Without a key the CLI's "auto" mode picks the free local AI, else the simple selection.
     return args
 
 
@@ -181,8 +180,16 @@ def parse_line(line: str) -> list[Event]:
         out.append(Event("keyerror", "Der API-Key wurde abgelehnt – es wird ohne Key weitergemacht."))
     elif "Connection lost" in line:
         out.append(Event("status", "Internetverbindung unterbrochen – neuer Versuch gleich …"))
+    elif "Using the free local AI" in line:
+        out.append(Event("status", "Die kostenlose KI auf deinem PC schaut sich das Video an – "
+                                   "das kann einige Minuten dauern …", 45))
+    elif "Writing titles and catchphrases" in line:
+        out.append(Event("status", "Schreibe Titel und Catchphrases …", 50))
     elif line.startswith("Note: offline heuristic"):
-        out.append(Event("note", "Ohne API-Key erstellt – mit Key werden Auswahl und Titel deutlich besser."))
+        out.append(Event("note", "Ohne KI erstellt (einfache Auswahl). Richte die kostenlose KI ein "
+                                 "oder nutze einen API-Key für bessere Clips und Titel."))
+    elif line.startswith("Note: created with the free local AI"):
+        out.append(Event("note", "Mit der kostenlosen KI auf deinem PC erstellt."))
     return out
 
 
@@ -252,6 +259,43 @@ def details_text(video: Path) -> str:
     if meta.get("why"):
         lines += ["", f"Warum dieser Clip:  {meta['why']}"]
     return "\n".join(lines)
+
+
+def setup_free_ai(report) -> None:
+    """Install/start Ollama and download the model. `report(text, fraction_or_None)`.
+    Raises RuntimeError with a message for the user."""
+    from . import local_llm
+
+    if local_llm.status() == "no-server":
+        if not local_llm.find_executable():
+            if not IS_WINDOWS:
+                raise RuntimeError("Bitte Ollama von ollama.com installieren und danach erneut versuchen.")
+            report("Installiere Ollama (ca. 1 GB) – das dauert ein paar Minuten …", None)
+            if not local_llm.install_windows():
+                raise RuntimeError("Ollama konnte nicht installiert werden.\n\nInstalliere es von Hand mit\n"
+                                   "  winget install Ollama.Ollama\noder von ollama.com und versuche es dann erneut.")
+        report("Starte Ollama …", None)
+        if not local_llm.ensure_server(60):
+            raise RuntimeError("Ollama ist installiert, startet aber nicht.\n\n"
+                               "Öffne „Ollama“ einmal über das Startmenü und versuche es dann erneut.")
+    if local_llm.status() == "no-model":
+        last = {"pct": -1}
+
+        def progress(text: str, fraction: float | None) -> None:
+            if fraction is None:
+                return
+            pct = int(fraction * 100)
+            if pct != last["pct"]:
+                last["pct"] = pct
+                report(f"Lade das KI-Modell herunter (ca. 4,7 GB) … {pct} %", fraction)
+
+        report("Lade das KI-Modell herunter (ca. 4,7 GB) …", 0.0)
+        try:
+            local_llm.pull(on_progress=progress)
+        except local_llm.LocalUnavailable as exc:
+            raise RuntimeError(f"Download des KI-Modells fehlgeschlagen.\n\n{exc}") from exc
+    if local_llm.status() != "ready":
+        raise RuntimeError("Die kostenlose KI ist noch nicht bereit. Bitte erneut versuchen.")
 
 
 def open_path(path: Path) -> None:

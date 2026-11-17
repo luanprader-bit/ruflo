@@ -355,8 +355,15 @@ def make_plan(
     analyzer: str = "auto",
     model: str | None = None,
     effort: str = "high",
+    local_model: str | None = None,
 ) -> tuple[VideoPlan, str]:
-    """Return the plan and the name of the analyzer that produced it."""
+    """Return the plan and the name of the analyzer that produced it.
+
+    auto: Claude if credentials work, else the free local AI (Ollama) if it is
+    set up, else the keyword heuristic.
+    """
+    from . import local_llm
+
     if not transcript.sentences:
         raise RuntimeError("The transcript is empty - nothing to analyse")
     if analyzer in ("auto", "claude"):
@@ -365,8 +372,22 @@ def make_plan(
         except AnalysisUnavailable as exc:
             if analyzer == "claude":
                 raise
-            log.warning(
-                "Claude unavailable (%s). Falling back to the offline heuristic - "
-                "set ANTHROPIC_API_KEY for real editorial quality.", exc,
+            log.warning("Claude unavailable (%s).", exc)
+    if analyzer in ("auto", "local"):
+        name = local_llm.local_model(local_model)
+        try:
+            log.info("   Using the free local AI (%s) - this can take several minutes", name)
+            plan = local_llm.call_local(
+                SYSTEM_PROMPT, build_user_prompt(info, transcript, brief), VideoPlan, model=name
             )
+            return plan, "local"
+        except local_llm.LocalUnavailable as exc:
+            if analyzer == "local":
+                raise
+            log.warning("Local AI unavailable (%s).", exc)
+        except RuntimeError as exc:
+            if analyzer == "local":
+                raise
+            log.warning("Local AI failed (%s).", exc)
+    log.warning("Falling back to the simple offline selection (no AI).")
     return plan_heuristic(info, transcript, brief), "heuristic"

@@ -156,7 +156,6 @@ def build_ass(
     """Captions, plus the hook: big catchphrase until `catch_until`, then a headline."""
     font = pick_font(style.font)
     hi = ass_color(style.highlight)
-    hi_box = "&H00" + hi[2:-1]  # same colour as an opaque box
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
@@ -168,8 +167,8 @@ YCbCr Matrix: TV.709
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,{font},{style.size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,7,3,2,70,70,{style.bottom_margin},1
-Style: Hook,{font},{style.hook_size},&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,16,0,8,90,90,{style.hook_margin},1
-Style: Catch,{font},{style.catch_size},&H00101010,&H00101010,{hi_box},&H00000000,-1,0,0,0,100,100,0,0,3,22,0,8,80,80,{style.catch_margin},1
+Style: Hook,{font},{style.hook_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,5,2,8,90,90,{style.hook_margin},1
+Style: Catch,{font},{style.catch_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,8,3,8,80,80,{style.catch_margin},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

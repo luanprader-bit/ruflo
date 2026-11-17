@@ -60,6 +60,10 @@ def test_catchphrase_then_headline():
     head = next(l for l in ass.splitlines() if l.startswith("Dialogue: 1"))
     assert ",0:00:00.00,0:00:04.00,Catch," in catch and "NOBODY" in catch and "HAPPENED NEXT" in catch and "\\N" in catch
     assert ",0:00:04.00,0:00:30.00,Hook," in head
-    assert "Style: Catch,Inter,86,&H00101010,&H00101010,&H0000E5FF" in ass
+    catch_style = next(l for l in ass.splitlines() if l.startswith("Style: Catch,"))
+    hook_style = next(l for l in ass.splitlines() if l.startswith("Style: Hook,"))
+    for style_line in (catch_style, hook_style):  # transparent: outline + shadow, no box
+        fields = style_line.split(",")
+        assert fields[2] in ("86", "58") and fields[3] == "&H00FFFFFF" and fields[15] == "1"
     plain = build_ass(words, 30.0, CaptionStyle(font="Inter"), hook="Hi")
     assert "Dialogue: 2" not in plain and ",0:00:00.00,0:00:30.00,Hook," in plain

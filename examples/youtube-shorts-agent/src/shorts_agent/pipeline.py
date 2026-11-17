@@ -32,7 +32,8 @@ class Config:
     output_language: str | None = None  # language of summary & titles
     transcript_file: Path | None = None
     whisper_model: str = "small"
-    analyzer: str = "auto"  # auto | claude | heuristic
+    analyzer: str = "auto"  # auto | claude | local | heuristic
+    local_model: str | None = None  # Ollama model for the free local AI
     model: str | None = None
     effort: str = "high"
     layout: str = "auto"  # auto | crop | blur
@@ -124,16 +125,17 @@ def _get_plan(cfg: Config, info: VideoInfo, transcript: Transcript, work: Path) 
     )
     # The cache is only valid for the same request against the same transcript.
     key = hashlib.sha1(
-        json.dumps([PLAN_VERSION, asdict(brief), cfg.analyzer, cfg.model, len(transcript.words)]).encode()
+        json.dumps([PLAN_VERSION, asdict(brief), cfg.analyzer, cfg.model, cfg.local_model, len(transcript.words)]).encode()
     ).hexdigest()[:10]
     cache = work / f"plan-{key}.json"
     if cache.exists() and not cfg.force:
         data = json.loads(cache.read_text(encoding="utf-8"))
         return VideoPlan.model_validate(data["plan"]), data["analyzer"]
     plan, used = analyze.make_plan(
-        info, transcript, brief, analyzer=cfg.analyzer, model=cfg.model, effort=cfg.effort
+        info, transcript, brief, analyzer=cfg.analyzer, model=cfg.model, effort=cfg.effort,
+        local_model=cfg.local_model,
     )
-    if used == "claude":  # the heuristic is instant, and must not shadow a later Claude run
+    if used in ("claude", "local"):  # the heuristic is instant and must not shadow a later AI run
         cache.write_text(
             json.dumps({"analyzer": used, "plan": plan.model_dump()}, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -141,11 +143,13 @@ def _get_plan(cfg: Config, info: VideoInfo, transcript: Transcript, work: Path) 
     return plan, used
 
 
-def _package(cfg: Config, info: VideoInfo, transcript: Transcript, clips: list[Clip], work: Path) -> None:
+def _package(
+    cfg: Config, info: VideoInfo, transcript: Transcript, clips: list[Clip], work: Path, backend: str = "claude"
+) -> None:
     """Sharpen titles and catchphrases in a focused second pass (cached, never fatal)."""
     language = cfg.output_language or f"the language spoken in the video ({transcript.language})"
     key = hashlib.sha1(json.dumps([
-        packaging.PACKAGING_VERSION, language, cfg.model,
+        packaging.PACKAGING_VERSION, language, backend, cfg.model if backend == "claude" else cfg.local_model,
         [[c.title, [[s.start, s.end] for s in c.playlist]] for c in clips],
     ]).encode()).hexdigest()[:10]
     cache = work / f"titles-{key}.json"
@@ -154,7 +158,8 @@ def _package(cfg: Config, info: VideoInfo, transcript: Transcript, clips: list[C
             plan = packaging.PackagingPlan.model_validate_json(cache.read_text(encoding="utf-8"))
         else:
             log.info("   Writing titles and catchphrases")
-            plan = packaging.package(info, transcript, clips, language, model=cfg.model, effort=cfg.effort)
+            plan = packaging.package(info, transcript, clips, language, model=cfg.model, effort=cfg.effort,
+                                     backend=backend, local_model=cfg.local_model)
             cache.write_text(plan.model_dump_json(indent=2), encoding="utf-8")
     except Exception as exc:  # optional polish: keep the drafts
         log.warning("Could not refine titles (%s) - keeping the first drafts", exc)
@@ -192,8 +197,10 @@ def write_summary(
             name = f"`shorts/{file.name}`" if file else "–"
             cell = lambda s: s.replace("|", "\\|").replace("\n", " ")  # noqa: E731
             lines.append(f"| {i} | {name} | {cell(clip.title)} | {clip.duration:.0f}s | {clip.score} | {src} | {cell(clip.reason)} |")
-    if analyzer != "claude":
-        lines += ["", "_Offline heuristic used (no Claude credentials) - summary and clip choice are extractive._"]
+    if analyzer == "heuristic":
+        lines += ["", "_Simple offline selection (no AI) - summary and clip choice are extractive._"]
+    elif analyzer == "local":
+        lines += ["", "_Created with the free local AI (Ollama)._"]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -264,8 +271,8 @@ def run(cfg: Config) -> Result:
         recap=cfg.mode in ("both", "recap"),
     )
     language = cfg.output_language or transcript.language
-    if analyzer == "claude" and clips:
-        _package(cfg, info, transcript, clips, work)
+    if analyzer in ("claude", "local") and clips:
+        _package(cfg, info, transcript, clips, work, analyzer)
     summary_path = out_dir / "summary.md"
     write_summary(summary_path, info, transcript, plan, [(c, None) for c in clips], analyzer, language)
 
