@@ -8,6 +8,7 @@ background, which never cuts content off.
 from __future__ import annotations
 
 import logging
+import os
 import statistics
 from pathlib import Path
 
@@ -27,6 +28,9 @@ def vision_available() -> bool:
 
 def face_center(video: Path, span: Span, samples: int = 7) -> float | None:
     """Horizontal centre (0..1) of the speaker's face, or None if unclear."""
+    # Seeking into the middle of an H.264 stream makes OpenCV's bundled ffmpeg
+    # print harmless "mmco: unref short failure" lines; keep them off the console.
+    os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
     import cv2
 
     detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
