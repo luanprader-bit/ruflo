@@ -31,7 +31,9 @@ Untertitel und Hook liegen außerhalb der Bereiche, die die Shorts-Oberfläche v
 3. Auf dem Desktop liegt jetzt **„YouTube Shorts Agent“** – ab dann reicht ein Doppelklick darauf.
 
 In der App: Link einfügen → **Shorts erstellen**. Fortschritt, fertige Shorts (Doppelklick
-spielt ab), Zusammenfassung und Protokoll stehen im Fenster. Der API-Key ist optional und
+spielt ab), Zusammenfassung und Protokoll stehen im Fenster. Wählst du ein Short aus, siehst du
+Titel, Alternativen, Beschreibung und Hashtags; **„Titel & Text kopieren“** legt alles fürs Hochladen
+in die Zwischenablage. Der API-Key ist optional und
 kann mit „merken“ für deinen Windows-Benutzer gespeichert werden. Videos landen standardmäßig
 in `Videos\YouTube Shorts`.
 
@@ -103,9 +105,12 @@ Wichtige Optionen (`shorts-agent --help` zeigt alle):
 2. **Analyse** – Claude bekommt das Transkript als nummerierte Zeilen und liefert per
    Structured Output Zusammenfassung, Kernpunkte und einen Schnittplan. Der Plan
    verweist nur auf Zeilennummern, nie auf frei erfundene Zeitstempel.
-3. **Schnittpunkte** – Der Plan wird auf Wortgrenzen eingerastet, auf das Längenfenster
+3. **Titel & Catchphrase** – ein zweiter, gezielter Durchgang pro Clip: Claude schreibt vier
+   Varianten aus unterschiedlichen Blickwinkeln und wählt die, bei der man sofort versteht, worum es
+   geht, und weiterschauen will. Die anderen Varianten stehen als Alternativen in der `.json`.
+4. **Schnittpunkte** – Der Plan wird auf Wortgrenzen eingerastet, auf das Längenfenster
    gebracht (zu lang → hinten kürzen, zu kurz → verlängern) und von Überschneidungen befreit.
-4. **Rendern** – ein ffmpeg-Aufruf pro Short: schneiden, auf 9:16 bringen, Untertitel
+5. **Rendern** – ein ffmpeg-Aufruf pro Short: schneiden, auf 9:16 bringen, Untertitel
    (ASS) einbrennen, Balken, Lautheit.
 
 Transkript und Plan werden unter `out/<id>/.work/` gecacht – ein zweiter Lauf mit anderem

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .gui_logic import (
     APP_NAME, IS_WINDOWS, LANGS, LAYOUTS, MODES, NO_WINDOW, Settings, build_cli_args, child_python,
-    default_out_dir, friendly_error, key_problem, load_api_key, open_path, parse_line, save_api_key, short_label,
+    default_out_dir, friendly_error, details_text, key_problem, load_api_key, open_path, parse_line, save_api_key, short_label, upload_text,
 )
 
 
@@ -154,12 +154,39 @@ def main() -> None:
     frame.rowconfigure(8, weight=1)
 
     res_tab = ttk.Frame(tabs, padding=8)
-    res_tab.columnconfigure(0, weight=1)
+    res_tab.columnconfigure(0, weight=2)
+    res_tab.columnconfigure(1, weight=3)
     res_tab.rowconfigure(0, weight=1)
-    results = tk.Listbox(res_tab, height=6, activestyle="none", font=("Segoe UI", 10))
-    results.grid(row=0, column=0, columnspan=3, sticky="nsew")
+    results = tk.Listbox(res_tab, height=6, width=34, activestyle="none", font=("Segoe UI", 10),
+                         exportselection=False)
+    results.grid(row=0, column=0, sticky="nsew")
+    details = tk.Text(res_tab, wrap="word", height=6, font=("Segoe UI", 10), relief="flat", padx=8, pady=6,
+                      state="disabled", background="#f8fafc")
+    details.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
     res_buttons = ttk.Frame(res_tab)
-    res_buttons.grid(row=1, column=0, sticky="w", pady=(8, 0))
+    res_buttons.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+    def selected_video() -> Path | None:
+        sel = results.curselection()
+        return Path(state["shorts"][sel[0]]) if sel else None
+
+    def show_details(_e=None) -> None:
+        video = selected_video()
+        details.configure(state="normal")
+        details.delete("1.0", "end")
+        details.insert("end", details_text(video) if video else "Wähle links ein Short aus.")
+        details.configure(state="disabled")
+
+    def copy_upload() -> None:
+        video = selected_video()
+        if not video:
+            messagebox.showinfo(APP_NAME, "Wähle zuerst links ein Short aus.")
+            return
+        root.clipboard_clear()
+        root.clipboard_append(upload_text(video))
+        status_var.set("Titel, Beschreibung und Hashtags kopiert – beim Hochladen einfach einfügen.")
+
+    results.bind("<<ListboxSelect>>", show_details)
 
     def open_selected(_e=None) -> None:
         sel = results.curselection()
@@ -173,9 +200,10 @@ def main() -> None:
 
     results.bind("<Double-Button-1>", open_selected)
     ttk.Button(res_buttons, text="Video abspielen", command=open_selected).pack(side="left")
+    ttk.Button(res_buttons, text="Titel & Text kopieren", command=copy_upload).pack(side="left", padx=(8, 0))
     ttk.Button(res_buttons, text="Ordner öffnen", command=open_folder).pack(side="left", padx=8)
     ttk.Label(res_tab, text="Doppelklick spielt ein Short ab.", foreground="#6b7280").grid(
-        row=1, column=2, sticky="e", pady=(8, 0))
+        row=1, column=1, sticky="e", pady=(8, 0))
 
     def text_tab() -> tk.Text:
         holder = ttk.Frame(tabs)
@@ -254,6 +282,7 @@ def main() -> None:
         cmd = [child_python(), *build_cli_args(source, s, out_dir, bool(key))]
         state.update(cancelled=False, shorts=[], summary=None, error=None, note=None)
         results.delete(0, "end")
+        show_details()
         set_text(summary_text, "")
         set_text(log_text, "")
         bar["value"] = 2
@@ -298,6 +327,10 @@ def main() -> None:
             if state["summary"] and Path(state["summary"]).exists():
                 set_text(summary_text, Path(state["summary"]).read_text(encoding="utf-8"))
             tabs.select(0 if n else 1)
+            if n:
+                results.selection_clear(0, "end")
+                results.selection_set(0)
+                show_details()
             root.bell()
         else:
             bar["value"] = 0

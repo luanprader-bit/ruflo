@@ -69,11 +69,12 @@ chronological order (premise, main point, conclusion). Each part is at least \
 
 The opening - this decides whether people keep watching
 - `hook` is the catchphrase shown big on screen for the first seconds. 3-7 \
-words, max 40 characters, in the output language. Make people need to see the \
-rest: a curiosity gap, a bold claim, a surprising number, stakes, a question \
-("He floored it in a 30 zone", "Nobody expected this answer"). It must be \
-true to the clip - no promises the clip does not keep. No emojis, no hashtags, \
-no trailing period.
+words, max 40 characters, in the output language. Someone who has never \
+heard of this video must understand at a glance WHAT is going on (name the \
+concrete subject: the person, car, product, place, number) and want to see \
+the rest (stakes, a surprising number, a contrast, an open question). Never \
+vague ("This is crazy", "Watch this"). It must be true to the clip. No \
+emojis, no hashtags, no trailing period.
 - `teaser_sentence` is a cold open: the single most gripping line from inside \
 the clip (a reaction, a shocking statement, the climax), at most ~6 seconds \
 long, played once before the clip starts from its beginning. It must not be \
@@ -81,8 +82,10 @@ the clip's first line, and it must not give the whole ending away if the \
 payoff is a reveal. Use -1 when the first line is already the strongest hook.
 
 Other text fields
-- `title`: specific and curiosity-driven, max 60 characters, no hashtags, no \
-clickbait the clip does not deliver.
+- `title`: instantly clear and curiosity-driven: the concrete subject first, \
+then the tension; max 60 characters, no hashtags, no clickbait the clip does \
+not deliver. Use the original video title and description to name things \
+the transcript leaves implicit.
 - `score`: your honest estimate (0-100) of how well the clip works on its own.
 - The summary must only state what the transcript supports. Auto-generated \
 transcripts contain recognition errors and lack punctuation: read through \
@@ -123,14 +126,10 @@ def build_user_prompt(info: VideoInfo, transcript: Transcript, brief: EditBrief)
     )
 
 
-def plan_with_claude(
-    info: VideoInfo,
-    transcript: Transcript,
-    brief: EditBrief,
-    *,
-    model: str | None = None,
-    effort: str = "high",
-) -> VideoPlan:
+def call_claude(system: str, user: str, output_format, *, model: str | None = None,
+                effort: str = "high", max_tokens: int = 32000):
+    """One structured-output request; returns the parsed object. Raises AnalysisUnavailable
+    when Claude cannot be used at all (no/invalid key, refusal), RuntimeError otherwise."""
     import anthropic
 
     model = model or os.environ.get("SHORTS_AGENT_MODEL") or DEFAULT_MODEL
@@ -141,14 +140,14 @@ def plan_with_claude(
         # classifier declines it, instead of failing the whole run.
         with client.beta.messages.stream(
             model=model,
-            max_tokens=32000,
+            max_tokens=max_tokens,
             thinking={"type": "adaptive"},
             output_config={"effort": effort},
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": build_user_prompt(info, transcript, brief)}],
-            output_format=VideoPlan,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            output_format=output_format,
         ) as stream:
             message = stream.get_final_message()
     except anthropic.AuthenticationError as exc:
@@ -176,6 +175,19 @@ def plan_with_claude(
     usage = message.usage
     log.info("Claude (%s): %d input / %d output tokens", message.model, usage.input_tokens, usage.output_tokens)
     return message.parsed_output
+
+
+def plan_with_claude(
+    info: VideoInfo,
+    transcript: Transcript,
+    brief: EditBrief,
+    *,
+    model: str | None = None,
+    effort: str = "high",
+) -> VideoPlan:
+    return call_claude(
+        SYSTEM_PROMPT, build_user_prompt(info, transcript, brief), VideoPlan, model=model, effort=effort
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -221,6 +233,15 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit + 1].rsplit(" ", 1)[0].rstrip(" ,;:-") or text[:limit]
+
+
+def _video_title(title: str, part: int = 0, german: bool = False) -> str:
+    """The original title, de-shouted and shortened; '(Teil 2)' for several clips."""
+    words = " ".join(title.split()).split(" ")
+    if sum(c.isupper() for c in title) > 0.6 * max(1, sum(c.isalpha() for c in title)):
+        words = [w if any(ch.isdigit() for ch in w) else w.capitalize() for w in words]
+    suffix = (f" (Teil {part})" if german else f" (Part {part})") if part else ""
+    return _truncate(" ".join(words), 70 - len(suffix)) + suffix
 
 
 def _catchphrase(text: str, limit: int = 40) -> str:
@@ -302,7 +323,7 @@ def plan_heuristic(info: VideoInfo, transcript: Transcript, brief: EditBrief) ->
         catch = sents[teaser if teaser >= 0 else i].text
         clips.append(ClipPlan(
             kind="highlight",
-            title=_truncate(sents[i].text.capitalize(), 60),
+            title=_video_title(info.title, 0, german),
             hook=_catchphrase(catch),
             teaser_sentence=teaser,
             description=_truncate(info.title, 150),
@@ -311,6 +332,11 @@ def plan_heuristic(info: VideoInfo, transcript: Transcript, brief: EditBrief) ->
             reason="Dense passage (keyword statistics)",
             score=max(1, min(99, round(40 + 40 * score))),
         ))
+
+    numbered = [c for c in clips if c.kind == "highlight"]
+    if len(numbered) > 1:  # several clips from one video: "(Teil 1)", "(Teil 2)", ...
+        for n, c in enumerate(numbered, 1):
+            c.title = _video_title(info.title, n, german)
 
     top = sorted(ranked[:6])
     return VideoPlan(

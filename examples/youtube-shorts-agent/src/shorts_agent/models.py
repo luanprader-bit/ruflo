@@ -122,6 +122,7 @@ class Clip:
     score: int
     spans: list[Span]
     teaser: Span | None = None  # cold open, played before `spans`
+    title_options: list[str] = field(default_factory=list)  # alternatives for the upload
 
     @property
     def playlist(self) -> list[Span]:

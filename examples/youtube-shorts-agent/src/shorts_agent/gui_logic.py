@@ -226,6 +226,34 @@ def key_problem(key: str) -> str | None:
     return None
 
 
+def _meta(video: Path) -> dict:
+    try:
+        return json.loads(video.with_suffix(".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def upload_text(video: Path) -> str:
+    """Ready to paste into YouTube: title, blank line, description with hashtags."""
+    meta = _meta(video)
+    return f"{meta.get('title', video.stem)}\n\n{meta.get('description', '')}".strip()
+
+
+def details_text(video: Path) -> str:
+    meta = _meta(video)
+    if not meta:
+        return video.name
+    lines = [f"Titel:  {meta.get('title', '')}"]
+    if meta.get("hook"):
+        lines.append(f"Catchphrase:  {meta['hook']}")
+    if meta.get("title_options"):
+        lines += ["", "Andere Titel-Ideen:"] + [f"  • {t}" for t in meta["title_options"]]
+    lines += ["", "Beschreibung:", meta.get("description", "")]
+    if meta.get("why"):
+        lines += ["", f"Warum dieser Clip:  {meta['why']}"]
+    return "\n".join(lines)
+
+
 def open_path(path: Path) -> None:
     if IS_WINDOWS:
         os.startfile(str(path))  # type: ignore[attr-defined]
