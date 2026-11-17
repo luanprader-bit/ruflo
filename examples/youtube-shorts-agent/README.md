@@ -21,6 +21,16 @@ Jedes Short hat animierte Wort-für-Wort-Untertitel (aktuelles Wort farbig), ein
 Hook-Zeile oben, einen Fortschrittsbalken und auf −14 LUFS normalisierten Ton.
 Untertitel und Hook liegen außerhalb der Bereiche, die die Shorts-Oberfläche verdeckt.
 
+## Windows: der einfachste Weg
+
+1. Einmalig Python und ffmpeg installieren (PowerShell, danach Fenster neu öffnen):
+   `winget install Python.Python.3.12` und `winget install Gyan.FFmpeg`
+2. Ordner entpacken und **`start.bat` doppelklicken**.
+3. API-Key eingeben (oder Enter für ohne Key), YouTube-Link einfügen, fertig.
+   Der Ordner `out` öffnet sich am Ende von selbst.
+
+Beim ersten Start richtet das Skript eine eigene Python-Umgebung im Ordner `.venv` ein.
+
 ## Installation
 
 Voraussetzungen: Python ≥ 3.10 und `ffmpeg` (mit libass – bei den Standardpaketen dabei).
