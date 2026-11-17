@@ -270,7 +270,7 @@ def setup_free_ai(report) -> None:
         if not local_llm.find_executable():
             if not IS_WINDOWS:
                 raise RuntimeError("Bitte Ollama von ollama.com installieren und danach erneut versuchen.")
-            report("Installiere Ollama (ca. 1 GB) – das dauert ein paar Minuten …", None)
+            report("Installiere Ollama (ca. 1 GB) – den Fortschritt siehst du im schwarzen Fenster …", None)
             if not local_llm.install_windows():
                 raise RuntimeError("Ollama konnte nicht installiert werden.\n\nInstalliere es von Hand mit\n"
                                    "  winget install Ollama.Ollama\noder von ollama.com und versuche es dann erneut.")

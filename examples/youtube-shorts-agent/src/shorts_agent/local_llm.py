@@ -61,12 +61,15 @@ def find_executable() -> str | None:
 
 
 def install_windows() -> bool:
-    """Install Ollama with winget (per user, no admin rights needed)."""
+    """Install Ollama with winget (per user, no admin rights needed).
+
+    Runs in its own visible console window so the download progress can be seen.
+    """
     try:
         subprocess.run(
             ["winget", "install", "-e", "--id", "Ollama.Ollama", "--silent",
              "--accept-source-agreements", "--accept-package-agreements"],
-            capture_output=True, creationflags=NO_WINDOW, timeout=1800, check=False,
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0), timeout=3600, check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return False
