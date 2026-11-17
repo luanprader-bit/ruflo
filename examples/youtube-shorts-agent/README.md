@@ -12,12 +12,13 @@ YouTube-URL ─▶ Transkript ─▶ Claude (Zusammenfassung + Schnittplan) ─�
 ```
 out/<video-id>/
   summary.md                 TL;DR, Zusammenfassung, Kernpunkte mit Zeitstempel-Links, Clip-Tabelle
-  shorts/01-recap-….mp4      das ganze Video in < 60 s (mehrere Kernaussagen hintereinander)
-  shorts/02-highlight-….mp4  die stärksten Einzelmomente, bester zuerst
+  shorts/01-highlight-….mp4  die stärksten Momente als ganze Mini-Geschichten, bester zuerst
   shorts/*.json              Titel, Beschreibung, Hashtags, Quell-Zeitstempel für den Upload
 ```
 
-Jedes Short hat animierte Wort-für-Wort-Untertitel (aktuelles Wort farbig), eine
+Jedes Highlight ist ein zusammenhängendes Stück (45–60 s) mit Anfang und Pointe. Es beginnt
+mit einer groß eingeblendeten **Catchphrase** und einem kurzen **Teaser** – dem packendsten
+Satz aus dem Clip –, danach läuft der Clip von vorn. Jedes Short hat animierte Wort-für-Wort-Untertitel (aktuelles Wort farbig), eine
 Hook-Zeile oben, einen Fortschrittsbalken und auf −14 LUFS normalisierten Ton.
 Untertitel und Hook liegen außerhalb der Bereiche, die die Shorts-Oberfläche verdeckt.
 
@@ -84,12 +85,13 @@ Wichtige Optionen (`shorts-agent --help` zeigt alle):
 | Option | Wirkung |
 |---|---|
 | `-n 3` | Anzahl Highlight-Shorts |
-| `--mode both\|highlights\|recap` | Highlights, Recap oder beides (Standard) |
-| `--min-len 20 --max-len 58` | Längenfenster in Sekunden |
+| `--mode highlights\|recap\|both` | nur Highlights (Standard), Recap oder beides |
+| `--min-len 45 --max-len 60` | Längenfenster in Sekunden |
+| `--no-teaser` | kein Teaser vorneweg |
 | `--layout auto\|crop\|blur` | `auto`: ein ruhiges Gesicht → 9:16-Zuschnitt darauf, sonst ganzes Bild auf unscharfem Hintergrund |
 | `--highlight-color "#FFE500"` | Farbe des gesprochenen Worts und des Balkens |
 | `--no-uppercase`, `--font`, `--font-size` | Untertitel-Stil |
-| `--no-hook`, `--no-progress-bar` | Overlays abschalten |
+| `--no-hook`, `--no-progress-bar` | Catchphrase bzw. Balken abschalten |
 | `--model`, `--effort` | Claude-Modell (Standard `claude-opus-5-5`) und Denkaufwand |
 | `--analyzer heuristic` | ohne API-Key: einfache Offline-Auswahl nach Wortstatistik |
 | `--force` | Cache (Transkript, Plan) ignorieren |

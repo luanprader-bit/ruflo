@@ -72,7 +72,13 @@ class PartPlan(BaseModel):
 class ClipPlan(BaseModel):
     kind: Literal["highlight", "recap"]
     title: str = Field(description="Upload title, max 60 characters, no hashtags")
-    hook: str = Field(description="On-screen headline, max 32 characters")
+    hook: str = Field(
+        description="Catchphrase shown big on screen in the first seconds, 3-7 words, max 40 characters"
+    )
+    teaser_sentence: int = Field(
+        description="Index of the single most gripping line inside this clip (max ~6 s, not its first "
+        "line), played as a cold open before the clip starts; -1 for no teaser"
+    )
     description: str = Field(description="1-2 sentence upload description")
     hashtags: list[str] = Field(description="3-5 hashtags without the leading #")
     parts: list[PartPlan] = Field(description="Source ranges, in playback order")
@@ -115,10 +121,15 @@ class Clip:
     reason: str
     score: int
     spans: list[Span]
+    teaser: Span | None = None  # cold open, played before `spans`
+
+    @property
+    def playlist(self) -> list[Span]:
+        return ([self.teaser] if self.teaser else []) + self.spans
 
     @property
     def duration(self) -> float:
-        return sum(s.duration for s in self.spans)
+        return sum(s.duration for s in self.playlist)
 
 
 @dataclass

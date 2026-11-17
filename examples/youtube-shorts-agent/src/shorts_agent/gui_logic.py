@@ -35,13 +35,14 @@ def default_out_dir() -> Path:
 @dataclass
 class Settings:
     highlights: int = 3
-    mode: str = "Recap + Highlights"
+    mode: str = "Nur Highlights"
     language: str = "Wie im Video"
     layout: str = "Automatisch"
-    max_len: int = 58
+    max_len: int = 60
     color: str = "#FFE500"
     uppercase: bool = True
     hook: bool = True
+    teaser: bool = True
     out_dir: str = ""
     last_update_check: float = 0.0
 
@@ -117,7 +118,7 @@ def build_cli_args(source: str, s: Settings, out_dir: Path, has_key: bool) -> li
         "--mode", MODES.get(s.mode, "both"),
         "--layout", LAYOUTS.get(s.layout, "auto"),
         "--max-len", str(max(15, min(60, int(s.max_len)))),
-        "--min-len", str(min(20, max(8, int(s.max_len) - 15))),
+        "--min-len", str(max(8, int(s.max_len) - 15)),
         "--highlight-color", s.color,
     ]
     if lang := LANGS.get(s.language):
@@ -126,6 +127,8 @@ def build_cli_args(source: str, s: Settings, out_dir: Path, has_key: bool) -> li
         args.append("--no-uppercase")
     if not s.hook:
         args.append("--no-hook")
+    if not s.teaser:
+        args.append("--no-teaser")
     if not has_key:
         args += ["--analyzer", "heuristic"]
     return args

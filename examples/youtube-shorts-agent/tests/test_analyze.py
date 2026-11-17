@@ -7,21 +7,24 @@ from shorts_agent.clips import resolve_clip, resolve_plan
 from shorts_agent.models import ClipPlan, KeyPoint, PartPlan, VideoPlan
 
 
-def clip(kind, parts, score=80, title="T"):
-    return ClipPlan(kind=kind, title=title, hook="Hook.", description="d", hashtags=["#a b", "c"],
+def clip(kind, parts, score=80, title="T", teaser=-1):
+    return ClipPlan(kind=kind, title=title, hook="Hook.", teaser_sentence=teaser, description="d", hashtags=["#a b", "c"],
                     parts=[PartPlan(first_sentence=a, last_sentence=b) for a, b in parts],
                     reason="r", score=score)
 
 
 def test_prompt_lists_every_line_with_index(info, transcript):
-    prompt = analyze.build_user_prompt(info, transcript, analyze.EditBrief(highlights=2))
+    prompt = analyze.build_user_prompt(info, transcript, analyze.EditBrief(highlights=2, recap=True))
     assert "[0] 0:00-0:05 Most people think" in prompt
     assert "[9] 0:54-0:59" in prompt
-    assert "up to 2 clips of kind `highlight`" in prompt and "`recap`" in prompt
+    assert "up to 2 clips of kind `highlight` (one continuous part each)" in prompt and "`recap`" in prompt
+    assert "teaser_sentence` to -1" not in prompt
+    no_teaser = analyze.build_user_prompt(info, transcript, analyze.EditBrief(teaser=False))
+    assert "teaser_sentence` to -1" in no_teaser and "`recap`" not in no_teaser
 
 
 def test_heuristic_plan_respects_brief(info, transcript):
-    brief = analyze.EditBrief(highlights=2, min_len=10, max_len=20)
+    brief = analyze.EditBrief(highlights=2, recap=True, min_len=10, max_len=20)
     plan = analyze.plan_heuristic(info, transcript, brief)
     kinds = [c.kind for c in plan.clips]
     assert kinds.count("recap") == 1 and 1 <= kinds.count("highlight") <= 2
@@ -42,7 +45,7 @@ def test_resolve_trims_long_and_extends_short(transcript):
 
 def test_resolve_clamps_bad_indices_and_cleans_text(transcript):
     c = resolve_clip(clip("highlight", [(8, 99)]), transcript, 5, 30)
-    assert c.spans[-1].end <= transcript.duration + 0.3
+    assert c.spans[-1].end <= transcript.duration + 0.45
     assert c.hook == "Hook" and c.hashtags == ["ab", "c"]
     assert resolve_clip(clip("highlight", [(-5, -1)]), transcript, 1, 30) is not None
 
@@ -121,3 +124,33 @@ def test_truncated_answer_is_an_error(monkeypatch, info, transcript):
     _fake_client(monkeypatch, message, [])
     with pytest.raises(RuntimeError, match="incomplete"):
         analyze.make_plan(info, transcript, analyze.EditBrief(), analyzer="auto")
+
+
+def test_teaser_plays_first_and_counts_towards_length(transcript):
+    c = resolve_clip(clip("highlight", [(2, 6)], teaser=5), transcript, 10, 34)
+    assert c.teaser is not None and round(c.teaser.start) == 30
+    assert c.playlist[0] is c.teaser and c.playlist[1:] == c.spans
+    assert c.duration <= 34.01 and round(c.spans[0].start) == 12
+
+
+def test_bad_teasers_are_ignored(transcript):
+    assert resolve_clip(clip("highlight", [(2, 6)], teaser=2), transcript, 10, 40).teaser is None  # first line
+    assert resolve_clip(clip("highlight", [(2, 6)], teaser=99), transcript, 10, 40).teaser is None
+    assert resolve_clip(clip("highlight", [(2, 6)], teaser=-1), transcript, 10, 40).teaser is None
+
+
+def test_heuristic_highlights_are_continuous_with_hook(info, transcript):
+    plan = analyze.plan_heuristic(info, transcript, analyze.EditBrief(highlights=1, min_len=20, max_len=30))
+    (h,) = [c for c in plan.clips if c.kind == "highlight"]
+    assert len(h.parts) == 1 and h.hook and len(h.hook) <= 40
+    assert h.teaser_sentence == -1 or h.parts[0].first_sentence < h.teaser_sentence <= h.parts[0].last_sentence
+    recap = analyze.plan_heuristic(info, transcript, analyze.EditBrief(highlights=0, recap=True, max_len=40))
+    assert len(recap.clips[0].parts) <= 3
+
+
+def test_catchphrase_never_ends_mid_clause():
+    assert analyze._catchphrase("Every time you check your phone, your brain needs twenty minutes.") == \
+        "Every time you check your phone"
+    assert analyze._catchphrase("That is completely wrong.") == "That is completely wrong"
+    long = analyze._catchphrase("Researchers followed four thousand knowledge workers for two whole years")
+    assert long.endswith("…") and len(long) <= 40

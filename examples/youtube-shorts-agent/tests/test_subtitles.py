@@ -51,3 +51,15 @@ def test_ass_highlights_each_word_once_without_overlap():
 def test_long_word_is_scaled_down():
     ass = build_ass([TimedWord("Donaudampfschifffahrtsgesellschaft", 0, 1)], 1.0, CaptionStyle(font="Inter"))
     assert re.search(r"\\fs4\d", ass)
+
+
+def test_catchphrase_then_headline():
+    words = [TimedWord("Hello", 0.0, 0.4)]
+    ass = build_ass(words, 30.0, CaptionStyle(font="Inter"), hook="Nobody expected what happened next", catch_until=4.0)
+    catch = next(l for l in ass.splitlines() if l.startswith("Dialogue: 2"))
+    head = next(l for l in ass.splitlines() if l.startswith("Dialogue: 1"))
+    assert ",0:00:00.00,0:00:04.00,Catch," in catch and "NOBODY" in catch and "HAPPENED NEXT" in catch and "\\N" in catch
+    assert ",0:00:04.00,0:00:30.00,Hook," in head
+    assert "Style: Catch,Inter,86,&H00101010,&H00101010,&H0000E5FF" in ass
+    plain = build_ass(words, 30.0, CaptionStyle(font="Inter"), hook="Hi")
+    assert "Dialogue: 2" not in plain and ",0:00:00.00,0:00:30.00,Hook," in plain

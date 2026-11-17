@@ -21,10 +21,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("source", help="YouTube URL or path to a local video file")
     p.add_argument("-o", "--out", type=Path, default=Path("out"), help="output folder (default: ./out)")
     p.add_argument("-n", "--num", type=int, default=3, help="number of highlight Shorts (default: 3)")
-    p.add_argument("--mode", choices=["both", "highlights", "recap"], default="both",
-                   help="highlights = best moments, recap = whole video in <60s, both (default)")
-    p.add_argument("--min-len", type=float, default=20, help="minimum Short length in seconds")
-    p.add_argument("--max-len", type=float, default=58, help="maximum Short length in seconds")
+    p.add_argument("--mode", choices=["both", "highlights", "recap"], default="highlights",
+                   help="highlights = best moments (default), recap = whole video in <60s, both")
+    p.add_argument("--min-len", type=float, default=45, help="minimum Short length in seconds")
+    p.add_argument("--max-len", type=float, default=60, help="maximum Short length in seconds")
     p.add_argument("--summary-only", action="store_true", help="write summary.md, render nothing")
 
     g = p.add_argument_group("transcript")
@@ -46,7 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--font-size", type=int, default=88)
     g.add_argument("--highlight-color", default="#FFE500", help="colour of the spoken word (#RRGGBB)")
     g.add_argument("--no-uppercase", action="store_true", help="keep original capitalisation")
-    g.add_argument("--no-hook", action="store_true", help="no headline at the top")
+    g.add_argument("--no-hook", action="store_true", help="no catchphrase / headline")
+    g.add_argument("--no-teaser", action="store_true", help="no cold-open teaser before the clip")
     g.add_argument("--no-progress-bar", action="store_true")
     g.add_argument("--quality", type=int, default=20, metavar="CRF", help="x264 CRF, lower = better (default: 20)")
     g.add_argument("--max-height", type=int, default=1080, help="max source resolution to download")
@@ -84,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             max_height=args.max_height,
             summary_only=args.summary_only,
             show_hook=not args.no_hook,
+            teaser=not args.no_teaser,
             force=args.force,
             caption=CaptionStyle(
                 font=args.font,

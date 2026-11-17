@@ -8,8 +8,8 @@ from .models import Clip, ClipPlan, Span, Transcript, VideoPlan
 
 log = logging.getLogger(__name__)
 
-LEAD_IN = 0.10  # seconds of air before the first word
-TAIL = 0.28  # seconds after the last word so it is not clipped
+LEAD_IN = 0.15  # seconds of air before the first word
+TAIL = 0.40  # seconds after the last word so it is not clipped
 
 
 def _span(transcript: Transcript, first: int, last: int) -> Span:
@@ -73,7 +73,9 @@ def resolve_clip(plan: ClipPlan, transcript: Transcript, min_len: float, max_len
     if not n or not plan.parts:
         return None
     parts = _normalise([(p.first_sentence, p.last_sentence) for p in plan.parts], n)
-    parts = _fit(transcript, parts, min_len, max_len)
+    teaser = _teaser(transcript, plan.teaser_sentence, parts, min_len, max_len)
+    used = teaser.duration if teaser else 0.0
+    parts = _fit(transcript, parts, max(3.0, min_len - used), max_len - used)
     spans = [_span(transcript, a, b) for a, b in parts]
     if not spans or sum(s.duration for s in spans) < 3:
         return None
@@ -86,7 +88,20 @@ def resolve_clip(plan: ClipPlan, transcript: Transcript, min_len: float, max_len
         reason=plan.reason,
         score=max(0, min(100, plan.score)),
         spans=spans,
+        teaser=teaser,
     )
+
+
+def _teaser(
+    transcript: Transcript, index: int, parts: list[tuple[int, int]], min_len: float, max_len: float
+) -> Span | None:
+    """A short, gripping line played once before the clip (cold open)."""
+    if not parts or not 0 <= index < len(transcript.sentences) or index == parts[0][0]:
+        return None
+    span = _span(transcript, index, index)
+    if not 1.0 <= span.duration <= 7.0 or max_len - span.duration < max(8.0, min_len * 0.5):
+        return None
+    return span
 
 
 def _overlap(a: Clip, b: Clip) -> float:

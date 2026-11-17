@@ -49,7 +49,7 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
 }
 
 # 4. Pakete - neu installieren, wenn dieser Ordner oder die Version neu ist
-$stamp = "v3|$PSScriptRoot"
+$stamp = "v4|$PSScriptRoot"
 $marker = Join-Path $home_ "installed.txt"
 $installed = if (Test-Path -LiteralPath $marker) { (Get-Content -LiteralPath $marker -Raw).Trim() } else { "" }
 if ($installed -ne $stamp) {

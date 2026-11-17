@@ -27,6 +27,8 @@ class CaptionStyle:
     bottom_margin: int = 500  # keeps clear of the Shorts UI overlay
     hook_size: int = 58
     hook_margin: int = 230
+    catch_size: int = 86
+    catch_margin: int = 330
 
 
 @dataclass
@@ -126,20 +128,35 @@ def _display(text: str, uppercase: bool) -> str:
 
 
 def _wrap_hook(hook: str, limit: int = 20) -> str:
-    """Balance a headline over two lines when it is too wide for one."""
-    hook = " ".join(hook.split())
-    if len(hook) <= limit or " " not in hook:
-        return _escape(hook)
-    mid = len(hook) / 2
-    cut = min((i for i, ch in enumerate(hook) if ch == " "), key=lambda i: abs(i - mid))
-    return _escape(hook[:cut]) + r"\N" + _escape(hook[cut + 1 :])
+    """Balance a headline over as few lines as fit `limit` characters each."""
+    words = hook.split()
+    if not words:
+        return ""
+    text = " ".join(words)
+    lines_needed = max(1, -(-len(text) // limit))
+    target = len(text) / lines_needed
+    lines, current = [], ""
+    for word in words:
+        if current and len(current) + 1 + len(word) > max(target, len(word)) + 2:
+            lines.append(current)
+            current = word
+        else:
+            current = f"{current} {word}".strip()
+    lines.append(current)
+    return r"\N".join(_escape(line) for line in lines)
 
 
 def build_ass(
-    words: list[TimedWord], total: float, style: CaptionStyle, hook: str | None = None
+    words: list[TimedWord],
+    total: float,
+    style: CaptionStyle,
+    hook: str | None = None,
+    catch_until: float = 0.0,
 ) -> str:
+    """Captions, plus the hook: big catchphrase until `catch_until`, then a headline."""
     font = pick_font(style.font)
     hi = ass_color(style.highlight)
+    hi_box = "&H00" + hi[2:-1]  # same colour as an opaque box
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
@@ -152,14 +169,23 @@ YCbCr Matrix: TV.709
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,{font},{style.size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,7,3,2,70,70,{style.bottom_margin},1
 Style: Hook,{font},{style.hook_size},&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,16,0,8,90,90,{style.hook_margin},1
+Style: Catch,{font},{style.catch_size},&H00101010,&H00101010,{hi_box},&H00000000,-1,0,0,0,100,100,0,0,3,22,0,8,80,80,{style.catch_margin},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines: list[str] = []
     if hook:
+        catch_until = min(max(0.0, catch_until), total)
+        if catch_until > 0.5:
+            catch = hook.upper() if style.uppercase else hook
+            lines.append(
+                f"Dialogue: 2,{_timestamp(0)},{_timestamp(catch_until)},Catch,,0,0,0,,"
+                f"{{\\fscx135\\fscy135\\t(0,220,\\fscx100\\fscy100)\\fad(0,180)}}{_wrap_hook(catch, 15)}"
+            )
         lines.append(
-            f"Dialogue: 1,{_timestamp(0)},{_timestamp(total)},Hook,,0,0,0,,{{\\fad(250,0)}}{_wrap_hook(hook)}"
+            f"Dialogue: 1,{_timestamp(catch_until if catch_until > 0.5 else 0)},{_timestamp(total)},Hook,,0,0,0,,"
+            f"{{\\fad(250,0)}}{_wrap_hook(hook)}"
         )
 
     groups = group_words(words, style)

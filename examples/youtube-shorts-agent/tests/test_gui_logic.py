@@ -10,7 +10,7 @@ def test_cli_args_follow_settings(tmp_path):
     args = g.build_cli_args("https://youtu.be/x", s, tmp_path, has_key=True)
     assert args[:3] == ["-m", "shorts_agent.cli", "https://youtu.be/x"]
     joined = " ".join(args)
-    for part in ("-n 5", "--mode highlights", "--layout crop", "--max-len 45", "--min-len 20",
+    for part in ("-n 5", "--mode highlights", "--layout crop", "--max-len 45", "--min-len 30",
                  "--highlight-color #00E0FF", "--output-lang Deutsch", "--no-uppercase", "--no-hook"):
         assert part in joined
     assert "--analyzer" not in args

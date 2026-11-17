@@ -16,15 +16,18 @@ from .models import Clip, Transcript, VideoInfo, VideoPlan
 
 log = logging.getLogger(__name__)
 
+PLAN_VERSION = 2  # bump when the plan schema or prompt changes
+
 
 @dataclass
 class Config:
     source: str
     out_dir: Path = Path("out")
     highlights: int = 3
-    mode: str = "both"  # both | highlights | recap
-    min_len: float = 20.0
-    max_len: float = 58.0
+    mode: str = "highlights"  # both | highlights | recap
+    min_len: float = 45.0
+    max_len: float = 60.0
+    teaser: bool = True
     language: str | None = None  # spoken language (caption track / whisper)
     output_language: str | None = None  # language of summary & titles
     transcript_file: Path | None = None
@@ -117,10 +120,11 @@ def _get_plan(cfg: Config, info: VideoInfo, transcript: Transcript, work: Path) 
         min_len=cfg.min_len,
         max_len=cfg.max_len,
         output_language=cfg.output_language,
+        teaser=cfg.teaser,
     )
     # The cache is only valid for the same request against the same transcript.
     key = hashlib.sha1(
-        json.dumps([asdict(brief), cfg.analyzer, cfg.model, len(transcript.words)]).encode()
+        json.dumps([PLAN_VERSION, asdict(brief), cfg.analyzer, cfg.model, len(transcript.words)]).encode()
     ).hexdigest()[:10]
     cache = work / f"plan-{key}.json"
     if cache.exists() and not cfg.force:
@@ -178,10 +182,15 @@ def _render_clip(
 ) -> Path:
     name = f"{index:02d}-{clip.kind}-{slugify(clip.title)}"
     output = shorts_dir / f"{name}.mp4"
-    words = subtitles.timeline_words(transcript, clip.spans)
-    ass = subtitles.build_ass(words, clip.duration, cfg.caption, clip.hook if cfg.show_hook else None)
-    centers = framing.choose_framing(video, clip.spans, media.width, media.height, cfg.layout)
-    render.render(video, clip.spans, centers, media, ass, output, work, cfg.render)
+    playlist = clip.playlist
+    words = subtitles.timeline_words(transcript, playlist)
+    # The catchphrase owns the opening: the whole teaser, or the first 3 seconds.
+    catch_until = clip.teaser.duration if clip.teaser else min(3.0, clip.duration)
+    ass = subtitles.build_ass(
+        words, clip.duration, cfg.caption, clip.hook if cfg.show_hook else None, catch_until
+    )
+    centers = framing.choose_framing(video, playlist, media.width, media.height, cfg.layout)
+    render.render(video, playlist, centers, media, ass, output, work, cfg.render)
     tags = " ".join(f"#{t}" for t in clip.hashtags)
     (shorts_dir / f"{name}.json").write_text(
         json.dumps(
@@ -193,6 +202,8 @@ def _render_clip(
                 "score": clip.score,
                 "duration": round(clip.duration, 2),
                 "layout": "crop" if centers[0] is not None else "blur",
+                "hook": clip.hook,
+                "teaser": [round(clip.teaser.start, 2), round(clip.teaser.end, 2)] if clip.teaser else None,
                 "source": {"url": info.url, "title": info.title, "channel": info.channel,
                            "spans": [[round(s.start, 2), round(s.end, 2)] for s in clip.spans]},
             },

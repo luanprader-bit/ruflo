@@ -60,6 +60,7 @@ def main() -> None:
     len_var = tk.IntVar(value=settings.max_len)
     upper_var = tk.BooleanVar(value=settings.uppercase)
     hook_var = tk.BooleanVar(value=settings.hook)
+    teaser_var = tk.BooleanVar(value=settings.teaser)
     out_var = tk.StringVar(value=settings.out_dir or str(default_out_dir()))
     status_var = tk.StringVar(value="Bereit. Füge einen YouTube-Link ein und klicke auf „Shorts erstellen“.")
     color = {"value": settings.color}
@@ -122,8 +123,10 @@ def main() -> None:
     ttk.Button(color_row, text="Untertitel-Farbe …", command=pick_color).pack(side="left")
     swatch.pack(side="left", padx=6, ipady=2)
     ttk.Checkbutton(opts, text="GROSSBUCHSTABEN", variable=upper_var).grid(row=3, column=0, columnspan=2, sticky="w")
-    ttk.Checkbutton(opts, text="Überschrift oben im Video", variable=hook_var).grid(
+    ttk.Checkbutton(opts, text="Catchphrase am Anfang", variable=hook_var).grid(
         row=3, column=2, columnspan=2, sticky="w", padx=(16, 0))
+    ttk.Checkbutton(opts, text="Spannender Teaser vorneweg", variable=teaser_var).grid(
+        row=4, column=2, columnspan=2, sticky="w", padx=(16, 0))
 
     ttk.Label(frame, text="Speichern in").grid(row=5, column=0, sticky="w")
     ttk.Entry(frame, textvariable=out_var).grid(row=5, column=1, sticky="ew", padx=8)
@@ -207,7 +210,7 @@ def main() -> None:
 
         return Settings(
             highlights=as_int(n_var, 3), mode=mode_var.get(), language=lang_var.get(), layout=layout_var.get(),
-            max_len=as_int(len_var, 58), color=color["value"], uppercase=upper_var.get(), hook=hook_var.get(),
+            max_len=as_int(len_var, 60), color=color["value"], uppercase=upper_var.get(), hook=hook_var.get(), teaser=teaser_var.get(),
             out_dir=out_var.get(), last_update_check=settings.last_update_check,
         )
 

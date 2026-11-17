@@ -25,9 +25,10 @@ DEFAULT_MODEL = "claude-opus-5-5"
 @dataclass
 class EditBrief:
     highlights: int = 3
-    recap: bool = True
-    min_len: float = 20.0
-    max_len: float = 58.0
+    recap: bool = False
+    min_len: float = 45.0
+    max_len: float = 60.0
+    teaser: bool = True
     output_language: str | None = None  # None -> the video's language
 
 
@@ -44,28 +45,44 @@ The transcript is a list of numbered lines: `[index] start-end text`. You \
 select footage only by line index. A part plays every line from \
 `first_sentence` to `last_sentence` inclusive, uncut.
 
+The Shorts must make sense. A viewer who has never seen the video must \
+understand every clip and feel it was worth watching.
+
 What makes a good highlight Short
-- It stands alone. A viewer who has never seen the video understands it: no \
-dangling "this", "he", "as I said", no answer without its question.
-- It opens on a hook: a bold claim, a question, a surprising fact, tension. \
-Start on the line where the thought begins, not in the middle of one.
-- It pays off. It ends on the line that completes the thought - a punchline, \
-conclusion or takeaway - never mid-sentence and never on a teaser for \
-something the clip does not show.
-- One idea per Short. Prefer the most valuable, surprising, emotional or funny \
-moments over generic intros, sponsor reads, greetings, housekeeping and outros.
+- It is ONE continuous passage (one part) that tells a complete mini-story: \
+setup, development, payoff. No jumps.
+- It stands alone: no dangling "this", "he", "as I said", no answer without \
+its question. Start on the line where the thought begins, not in the middle.
+- It ends on the line that completes the thought - a punchline, result, \
+reveal or takeaway - never mid-sentence and never on a teaser for something \
+the clip does not show.
+- It uses the time it is given: aim for the upper end of the length range \
+rather than cutting a story short.
+- Prefer the most surprising, emotional, funny, impressive or valuable \
+moments over intros, sponsor reads, greetings, housekeeping and outros.
 - Highlights must not overlap each other.
 
 What makes a good recap Short
-- It retells the whole video in under a minute using 3-7 short parts in \
-chronological order: the premise, the main points, the conclusion.
-- Every part is a complete statement on its own, and consecutive parts must \
-read coherently when played back to back.
+- It retells the whole video in under a minute with at most 3 parts in \
+chronological order (premise, main point, conclusion). Each part is at least \
+10 seconds and a complete statement; together they read as one coherent story.
 
-Text fields
+The opening - this decides whether people keep watching
+- `hook` is the catchphrase shown big on screen for the first seconds. 3-7 \
+words, max 40 characters, in the output language. Make people need to see the \
+rest: a curiosity gap, a bold claim, a surprising number, stakes, a question \
+("He floored it in a 30 zone", "Nobody expected this answer"). It must be \
+true to the clip - no promises the clip does not keep. No emojis, no hashtags, \
+no trailing period.
+- `teaser_sentence` is a cold open: the single most gripping line from inside \
+the clip (a reaction, a shocking statement, the climax), at most ~6 seconds \
+long, played once before the clip starts from its beginning. It must not be \
+the clip's first line, and it must not give the whole ending away if the \
+payoff is a reveal. Use -1 when the first line is already the strongest hook.
+
+Other text fields
 - `title`: specific and curiosity-driven, max 60 characters, no hashtags, no \
 clickbait the clip does not deliver.
-- `hook`: the on-screen headline, max 32 characters, punchy, no trailing period.
 - `score`: your honest estimate (0-100) of how well the clip works on its own.
 - The summary must only state what the transcript supports. Auto-generated \
 transcripts contain recognition errors and lack punctuation: read through \
@@ -88,8 +105,8 @@ def build_user_prompt(info: VideoInfo, transcript: Transcript, brief: EditBrief)
         )
     if brief.highlights:
         wanted.append(
-            f"- up to {brief.highlights} clips of kind `highlight` (one part each), "
-            f"each {brief.min_len:.0f}-{brief.max_len:.0f} seconds long, best first. "
+            f"- up to {brief.highlights} clips of kind `highlight` (one continuous part each), "
+            f"each {brief.min_len:.0f}-{brief.max_len:.0f} seconds long including the teaser, best first. "
             "Return fewer if the video does not contain that many strong moments."
         )
     return (
@@ -100,6 +117,7 @@ def build_user_prompt(info: VideoInfo, transcript: Transcript, brief: EditBrief)
         "Produce:\n"
         "- `tldr`, `summary` and 4-8 `key_points` (each anchored to the line where it is made)\n"
         + "\n".join(wanted)
+        + ("" if brief.teaser else "\n- set `teaser_sentence` to -1 for every clip (no cold opens)")
         + "\n\nAdd up the line timestamps to check every clip's length before you answer. "
         f"Write all text fields in {language}."
     )
@@ -205,6 +223,17 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit + 1].rsplit(" ", 1)[0].rstrip(" ,;:-") or text[:limit]
 
 
+def _catchphrase(text: str, limit: int = 40) -> str:
+    """A clean on-screen line from a transcript sentence: whole clause, never a cut-off word."""
+    text = " ".join(text.split()).strip(" .!?,;:")
+    clause = re.split(r"[,;:–—]\s+", text)[0]
+    if len(clause.split()) >= 3 and len(clause) <= limit:
+        return clause
+    if len(text) <= limit:
+        return text
+    return _truncate(text, limit - 1).rstrip(" ,;:-") + "…"
+
+
 def plan_heuristic(info: VideoInfo, transcript: Transcript, brief: EditBrief) -> VideoPlan:
     """Extractive plan from word statistics. Works offline; far cruder than Claude."""
     sents = transcript.sentences
@@ -216,31 +245,48 @@ def plan_heuristic(info: VideoInfo, transcript: Transcript, brief: EditBrief) ->
     clips: list[ClipPlan] = []
     ranked = sorted(range(len(sents)), key=lambda i: scores[i], reverse=True)
 
+    def window(i: int, target: float) -> int:
+        j = i
+        while j + 1 < len(sents) and sents[j].end - sents[i].start < target:
+            j += 1
+        return j
+
+    def teaser_in(i: int, j: int) -> int:
+        if not brief.teaser:
+            return -1
+        options = [k for k in range(i + 1, j + 1) if 1.2 <= sents[k].end - sents[k].start <= 6.0]
+        return max(options, key=lambda k: scores[k]) if options else -1
+
     if brief.recap and sents:
-        budget, chosen, total = brief.max_len * 0.9, [], 0.0
-        for i in ranked:
-            dur = sents[i].end - sents[i].start + 0.4
-            if total + dur <= budget:
-                chosen.append(i)
-                total += dur
+        part_len = max(10.0, brief.max_len / 3 - 1)
+        candidates = sorted(
+            ((sum(scores[i : window(i, part_len) + 1]) / (window(i, part_len) - i + 1), i, window(i, part_len))
+             for i in range(len(sents))),
+            reverse=True,
+        )
+        chosen: list[tuple[int, int]] = []
+        for _, i, j in candidates:
+            if len(chosen) == 3:
+                break
+            if all(j < a - 1 or i > b + 1 for a, b in chosen):
+                chosen.append((i, j))
         chosen.sort()
         clips.append(ClipPlan(
             kind="recap",
             title=_truncate(info.title, 60),
-            hook="In 60 Sekunden" if german else "In 60 seconds",
+            hook="Das ganze Video in 60 Sekunden" if german else "The whole video in 60 seconds",
+            teaser_sentence=-1,
             description=_truncate(info.title, 150),
             hashtags=tags,
-            parts=[PartPlan(first_sentence=i, last_sentence=i) for i in chosen],
-            reason="Highest-scoring statements in chronological order",
+            parts=[PartPlan(first_sentence=i, last_sentence=j) for i, j in chosen],
+            reason="Densest passages in chronological order",
             score=50,
         ))
 
     target = (brief.min_len + brief.max_len) / 2
     windows = []
     for i in range(len(sents)):
-        j = i
-        while j + 1 < len(sents) and sents[j].end - sents[i].start < target:
-            j += 1
+        j = window(i, target)
         if sents[j].end - sents[i].start < brief.min_len:
             break
         mean = sum(scores[i : j + 1]) / (j - i + 1)
@@ -252,10 +298,13 @@ def plan_heuristic(info: VideoInfo, transcript: Transcript, brief: EditBrief) ->
         if any(i <= b and a <= j for a, b in taken):
             continue
         taken.append((i, j))
+        teaser = teaser_in(i, j)
+        catch = sents[teaser if teaser >= 0 else i].text
         clips.append(ClipPlan(
             kind="highlight",
             title=_truncate(sents[i].text.capitalize(), 60),
-            hook=_truncate(info.title, 32),
+            hook=_catchphrase(catch),
+            teaser_sentence=teaser,
             description=_truncate(info.title, 150),
             hashtags=tags,
             parts=[PartPlan(first_sentence=i, last_sentence=j)],
