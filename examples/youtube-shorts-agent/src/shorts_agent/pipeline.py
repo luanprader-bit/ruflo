@@ -96,8 +96,9 @@ def _get_transcript(
     if transcript is None or not transcript.words:
         if not tr.whisper_available():
             raise RuntimeError(
-                "No captions found for this video. Install speech recognition with "
-                "`pip install faster-whisper`, or pass --transcript file.srt"
+                "YouTube delivered no captions for this video (none exist, or YouTube is "
+                "blocking caption downloads). Install speech recognition with "
+                "`pip install faster-whisper` and run again, or pass --transcript file.srt"
             )
         media = video or youtube.download_video(info.url, work, info.id, cfg.max_height)
         log.info("Transcribing with Whisper (%s) - this can take a while", cfg.whisper_model)

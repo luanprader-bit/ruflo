@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 
 from .models import Transcript, VideoInfo
@@ -74,9 +75,14 @@ def fetch_captions(raw: dict, language: str | None = None) -> Transcript | None:
             continue
         lang, url = picked
         try:
-            with _ydl() as ydl:
-                payload = ydl.urlopen(url).read().decode("utf-8")
+            payload = _download_text(url)
             transcript = from_json3(payload, lang.removesuffix("-orig").split("-")[0])
+        except RateLimited:
+            log.warning(
+                "YouTube is rate-limiting caption downloads right now (HTTP 429) - "
+                "falling back to speech recognition"
+            )
+            return None  # every other track hits the same limit
         except Exception as exc:  # network / format hiccup: try the next track
             log.warning("Could not load %s captions (%s): %s", label, lang, exc)
             continue
@@ -84,6 +90,31 @@ def fetch_captions(raw: dict, language: str | None = None) -> Transcript | None:
             log.info("Using %s captions (%s), %d words", label, lang, len(transcript.words))
             return transcript
     return None
+
+
+class RateLimited(RuntimeError):
+    """YouTube answered HTTP 429 Too Many Requests."""
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    status = getattr(exc, "status", None) or getattr(exc, "code", None)
+    return status == 429 or "429" in str(exc)
+
+
+def _download_text(url: str, waits: tuple[float, ...] = (3.0, 8.0)) -> str:
+    """GET a caption URL, retrying briefly when YouTube rate-limits."""
+    for attempt in range(len(waits) + 1):
+        try:
+            with _ydl() as ydl:
+                return ydl.urlopen(url).read().decode("utf-8")
+        except Exception as exc:
+            if not _is_rate_limit(exc):
+                raise
+            if attempt == len(waits):
+                raise RateLimited(str(exc)) from exc
+            log.info("YouTube says 'too many requests' - retrying in %.0fs", waits[attempt])
+            time.sleep(waits[attempt])
+    raise AssertionError("unreachable")
 
 
 def download_video(url: str, dest_dir: Path, video_id: str, max_height: int = 1080) -> Path:

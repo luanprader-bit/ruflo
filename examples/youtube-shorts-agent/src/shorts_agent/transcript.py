@@ -173,17 +173,31 @@ def whisper_available() -> bool:
 
 
 def from_whisper(media: Path, model: str = "small", language: str | None = None) -> Transcript:
+    """Transcribe locally with faster-whisper.
+
+    Runs on the CPU by default: "auto" picks CUDA whenever an NVIDIA driver is
+    present and then fails if the CUDA libraries are missing. Set
+    SHORTS_AGENT_WHISPER_DEVICE=cuda to use a properly set-up GPU.
+    """
+    import logging
+    import os
+
     from faster_whisper import WhisperModel
 
-    engine = WhisperModel(model, device="auto", compute_type="auto")
+    log = logging.getLogger(__name__)
+    device = os.environ.get("SHORTS_AGENT_WHISPER_DEVICE", "cpu")
+    engine = WhisperModel(model, device=device, compute_type="int8" if device == "cpu" else "float16")
     segments, info = engine.transcribe(
         str(media), language=language, word_timestamps=True, vad_filter=True
     )
-    words = [
-        Word(w.word.strip(), float(w.start), float(w.end))
-        for seg in segments
-        for w in (seg.words or [])
-    ]
+    total = float(getattr(info, "duration", 0) or 0)
+    words: list[Word] = []
+    next_report = 60.0
+    for seg in segments:
+        words.extend(Word(w.word.strip(), float(w.start), float(w.end)) for w in (seg.words or []))
+        if seg.end >= next_report:
+            log.info("   %s / %s transcribed", fmt_time(seg.end), fmt_time(total) if total else "?")
+            next_report = seg.end + 60.0
     return _make(words, language or info.language or "und", "whisper")
 
 

@@ -21,15 +21,23 @@ Jedes Short hat animierte Wort-für-Wort-Untertitel (aktuelles Wort farbig), ein
 Hook-Zeile oben, einen Fortschrittsbalken und auf −14 LUFS normalisierten Ton.
 Untertitel und Hook liegen außerhalb der Bereiche, die die Shorts-Oberfläche verdeckt.
 
-## Windows: der einfachste Weg
+## Windows: als App
 
 1. Einmalig Python und ffmpeg installieren (PowerShell, danach Fenster neu öffnen):
    `winget install Python.Python.3.12` und `winget install Gyan.FFmpeg`
-2. Ordner entpacken und **`start.bat` doppelklicken**.
-3. API-Key eingeben (oder Enter für ohne Key), YouTube-Link einfügen, fertig.
-   Der Ordner `out` öffnet sich am Ende von selbst.
+2. Ordner entpacken und **`start.bat` doppelklicken**. Beim ersten Mal wird alles
+   installiert (einige Minuten), danach öffnet sich das App-Fenster.
+3. Auf dem Desktop liegt jetzt **„YouTube Shorts Agent“** – ab dann reicht ein Doppelklick darauf.
 
-Beim ersten Start richtet das Skript eine eigene Python-Umgebung im Ordner `.venv` ein.
+In der App: Link einfügen → **Shorts erstellen**. Fortschritt, fertige Shorts (Doppelklick
+spielt ab), Zusammenfassung und Protokoll stehen im Fenster. Der API-Key ist optional und
+kann mit „merken“ für deinen Windows-Benutzer gespeichert werden. Videos landen standardmäßig
+in `Videos\YouTube Shorts`.
+
+Die Python-Umgebung liegt unter `%LOCALAPPDATA%\YouTubeShortsAgent` (nicht in OneDrive).
+`start.bat -Console` startet die Terminal-Version.
+
+Auf anderen Systemen startet `shorts-agent-app` (bzw. `python -m shorts_agent.gui`) dasselbe Fenster.
 
 ## Installation
 
